@@ -1,16 +1,28 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
-use nalgebra::geometry::Isometry3;
-use petgraph::algo::{is_cyclic_undirected, toposort};
+use nalgebra::geometry::{Isometry3, UnitQuaternion};
+use petgraph::algo::is_cyclic_undirected;
 use petgraph::graphmap::DiGraphMap;
-use petgraph::Direction;
 
 pub enum TransformType {
     /// Does not change over time
     Static,
     /// Changes over time
     Dynamic,
+}
+
+/// Enumerates the different types of errors
+#[derive(Clone, Debug)]
+pub enum TfError {
+    /// Error due to looking up too far in the past. I.E the information is no longer available in the TF Cache.
+    AttemptedLookupInPast,
+    /// Error due ti the transform not yet being available.
+    AttemptedLookUpInFuture,
+    /// There is no path between the from and to frame.
+    CouldNotFindTransform,
+    /// In the event that a write is simultaneously happening with a read of the same tf buffer
+    CouldNotAcquireLock,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +71,38 @@ impl TransformHistory {
         self.history.push_back(stamped_isometry);
         if self.history.len() > self.max_history {
             self.history.pop_front();
+        }
+    }
+
+    pub fn interpolate_isometry_at_time(&self, time: f64) -> Result<Isometry3<f64>, TfError> {
+        if self.history.len() < 2 {
+            return Err(TfError::CouldNotFindTransform); // Not enough elements
+        }
+
+        let history = &self.history;
+        let idx = history.binary_search_by(|entry| entry.stamp.partial_cmp(&time).unwrap());
+
+        match idx {
+            Ok(i) => {
+                return Ok(history[i].isometry);
+            }
+            Err(i) => {
+                // Not found, i is the insertion point
+                if i == 0 {
+                    return Err(TfError::AttemptedLookupInPast);
+                }
+                if i >= history.len() {
+                    return Err(TfError::AttemptedLookUpInFuture);
+                } else {
+                    let weight =
+                        (time - history[i - 1].stamp) / (history[i].stamp - history[i - 1].stamp);
+                    return Ok(
+                        history[i - 1]
+                            .isometry
+                            .lerp_slerp(&history[i].isometry, weight),
+                    );
+                }
+            }
         }
     }
 }
@@ -178,6 +222,70 @@ impl BufferTree {
         Some(path_1)
     }
 
+    pub fn lookup_latest_transform(
+        &mut self,
+        source: String,
+        target: String,
+    ) -> Option<Isometry3<f64>> {
+        let mut isometry = Isometry3::identity();
+        for pair in self.find_path(source, target).unwrap().windows(2) {
+            let source_idx = pair[0];
+            let target_idx = pair[1];
+
+            if self.graph.contains_edge(source_idx, target_idx) {
+                isometry *= self
+                    .graph
+                    .edge_weight(source_idx, target_idx)
+                    .unwrap()
+                    .history
+                    .back()
+                    .unwrap()
+                    .isometry;
+            } else {
+                isometry *= self
+                    .graph
+                    .edge_weight(source_idx, target_idx)
+                    .unwrap()
+                    .history
+                    .back()
+                    .unwrap()
+                    .isometry
+                    .inverse();
+            }
+        }
+        Some(isometry)
+    }
+
+    pub fn lookup_transform(
+        &mut self,
+        source: String,
+        target: String,
+        time: f64,
+    ) -> Option<Isometry3<f64>> {
+        let mut isometry = Isometry3::identity();
+        for pair in self.find_path(source, target).unwrap().windows(2) {
+            let source_idx = pair[0];
+            let target_idx = pair[1];
+
+            if self.graph.contains_edge(source_idx, target_idx) {
+                isometry *= self
+                    .graph
+                    .edge_weight(source_idx, target_idx)
+                    .unwrap()
+                    .interpolate_isometry_at_time(time)
+                    .unwrap();
+            } else {
+                isometry *= self
+                    .graph
+                    .edge_weight(source_idx, target_idx)
+                    .unwrap()
+                    .interpolate_isometry_at_time(time)
+                    .unwrap()
+                    .inverse();
+            }
+        }
+        Some(isometry)
+    }
 }
 
 #[cfg(test)]
@@ -365,4 +473,9 @@ fn test_find_path() {
             buffer_tree.index.index("E".to_string()),
         ])
     );
+    let edge = buffer_tree.graph.edge_weight(
+        buffer_tree.index.index("A".to_string()),
+        buffer_tree.index.index("B".to_string()),
+    );
+    println!("{:?}", edge.unwrap().max_history);
 }
