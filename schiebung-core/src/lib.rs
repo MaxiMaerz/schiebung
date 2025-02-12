@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 
-use nalgebra::geometry::{Isometry3, UnitQuaternion};
+use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
+use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
 
+#[derive(Clone, Debug)]
 pub enum TransformType {
     /// Does not change over time
     Static,
@@ -52,6 +54,7 @@ impl PartialOrd for StampedIsometry {
     }
 }
 
+#[derive(Debug)]
 struct TransformHistory {
     history: VecDeque<StampedIsometry>,
     kind: TransformType,
@@ -96,11 +99,9 @@ impl TransformHistory {
                 } else {
                     let weight =
                         (time - history[i - 1].stamp) / (history[i].stamp - history[i - 1].stamp);
-                    return Ok(
-                        history[i - 1]
-                            .isometry
-                            .lerp_slerp(&history[i].isometry, weight),
-                    );
+                    return Ok(history[i - 1]
+                        .isometry
+                        .lerp_slerp(&history[i].isometry, weight));
                 }
             }
         }
@@ -286,6 +287,10 @@ impl BufferTree {
         }
         Some(isometry)
     }
+
+    pub fn visualize(&self) -> Dot<&DiGraphMap<usize, TransformHistory>> {
+        Dot::with_config(&self.graph, &[Config::GraphContentOnly])
+    }
 }
 
 #[cfg(test)]
@@ -401,7 +406,7 @@ fn test_find_path() {
             isometry: Isometry3::identity(),
             stamp: 1.0,
         },
-        TransformType::Static,
+        TransformType::Dynamic,
     );
 
     buffer_tree.update(
@@ -411,7 +416,7 @@ fn test_find_path() {
             isometry: Isometry3::identity(),
             stamp: 2.0,
         },
-        TransformType::Static,
+        TransformType::Dynamic,
     );
 
     buffer_tree.update(
@@ -421,7 +426,7 @@ fn test_find_path() {
             isometry: Isometry3::identity(),
             stamp: 3.0,
         },
-        TransformType::Static,
+        TransformType::Dynamic,
     );
 
     buffer_tree.update(
@@ -431,8 +436,10 @@ fn test_find_path() {
             isometry: Isometry3::identity(),
             stamp: 3.0,
         },
-        TransformType::Static,
+        TransformType::Dynamic,
     );
+
+    println!("{:?}", buffer_tree.visualize());
 
     let result = buffer_tree.find_path("D".to_string(), "B".to_string());
     assert_eq!(
@@ -477,5 +484,4 @@ fn test_find_path() {
         buffer_tree.index.index("A".to_string()),
         buffer_tree.index.index("B".to_string()),
     );
-    println!("{:?}", edge.unwrap().max_history);
 }
