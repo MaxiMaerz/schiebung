@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "schiebung-core",
+    "schiebung-client",
+    "schiebung-types",
+]

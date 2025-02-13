@@ -6,6 +6,15 @@ use petgraph::algo::is_cyclic_undirected;
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
 
+#[derive(Debug)]
+#[repr(C)]
+pub struct TransformRequest {
+    pub id: i32,
+    pub from: String,
+    pub to: String,
+    pub time: f64,
+}
+
 #[derive(Clone, Debug)]
 pub enum TransformType {
     /// Does not change over time
@@ -28,7 +37,7 @@ pub enum TfError {
 }
 
 #[derive(Clone, Debug)]
-struct StampedIsometry {
+pub struct StampedIsometry {
     isometry: Isometry3<f64>,
     /// The time at which this isometry was recorded in seconds
     stamp: f64,
@@ -55,7 +64,7 @@ impl PartialOrd for StampedIsometry {
 }
 
 #[derive(Debug)]
-struct TransformHistory {
+pub struct TransformHistory {
     history: VecDeque<StampedIsometry>,
     kind: TransformType,
     max_history: usize,
@@ -78,30 +87,37 @@ impl TransformHistory {
     }
 
     pub fn interpolate_isometry_at_time(&self, time: f64) -> Result<Isometry3<f64>, TfError> {
-        if self.history.len() < 2 {
-            return Err(TfError::CouldNotFindTransform); // Not enough elements
-        }
-
-        let history = &self.history;
-        let idx = history.binary_search_by(|entry| entry.stamp.partial_cmp(&time).unwrap());
-
-        match idx {
-            Ok(i) => {
-                return Ok(history[i].isometry);
+        match self.kind {
+            TransformType::Static => {
+                return Ok(self.history.back().unwrap().isometry);
             }
-            Err(i) => {
-                // Not found, i is the insertion point
-                if i == 0 {
-                    return Err(TfError::AttemptedLookupInPast);
+            TransformType::Dynamic => {
+                if self.history.len() < 2 {
+                    return Err(TfError::CouldNotFindTransform); // Not enough elements
                 }
-                if i >= history.len() {
-                    return Err(TfError::AttemptedLookUpInFuture);
-                } else {
-                    let weight =
-                        (time - history[i - 1].stamp) / (history[i].stamp - history[i - 1].stamp);
-                    return Ok(history[i - 1]
-                        .isometry
-                        .lerp_slerp(&history[i].isometry, weight));
+
+                let history = &self.history;
+                let idx = history.binary_search_by(|entry| entry.stamp.partial_cmp(&time).unwrap());
+
+                match idx {
+                    Ok(i) => {
+                        return Ok(history[i].isometry);
+                    }
+                    Err(i) => {
+                        // Not found, i is the insertion point
+                        if i == 0 {
+                            return Err(TfError::AttemptedLookupInPast);
+                        }
+                        if i >= history.len() {
+                            return Err(TfError::AttemptedLookUpInFuture);
+                        } else {
+                            let weight = (time - history[i - 1].stamp)
+                                / (history[i].stamp - history[i - 1].stamp);
+                            return Ok(history[i - 1]
+                                .isometry
+                                .lerp_slerp(&history[i].isometry, weight));
+                        }
+                    }
                 }
             }
         }
@@ -136,7 +152,7 @@ impl NodeIndex {
     }
 }
 
-struct BufferTree {
+pub struct BufferTree {
     graph: DiGraphMap<usize, TransformHistory>,
     index: NodeIndex,
 }
@@ -227,7 +243,7 @@ impl BufferTree {
         &mut self,
         source: String,
         target: String,
-    ) -> Option<Isometry3<f64>> {
+    ) -> Option<StampedIsometry> {
         let mut isometry = Isometry3::identity();
         for pair in self.find_path(source, target).unwrap().windows(2) {
             let source_idx = pair[0];
@@ -254,7 +270,10 @@ impl BufferTree {
                     .inverse();
             }
         }
-        Some(isometry)
+        Some(StampedIsometry {
+            isometry,
+            stamp: 0.0,
+        })
     }
 
     pub fn lookup_transform(
@@ -262,7 +281,7 @@ impl BufferTree {
         source: String,
         target: String,
         time: f64,
-    ) -> Option<Isometry3<f64>> {
+    ) -> Option<StampedIsometry> {
         let mut isometry = Isometry3::identity();
         for pair in self.find_path(source, target).unwrap().windows(2) {
             let source_idx = pair[0];
@@ -285,7 +304,10 @@ impl BufferTree {
                     .inverse();
             }
         }
-        Some(isometry)
+        Some(StampedIsometry {
+            isometry,
+            stamp: time,
+        })
     }
 
     pub fn visualize(&self) -> Dot<&DiGraphMap<usize, TransformHistory>> {
