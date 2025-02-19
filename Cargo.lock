@@ -709,6 +709,9 @@ dependencies = [
 [[package]]
 name = "schiebung-types"
 version = "0.1.0"
+dependencies = [
+ "iceoryx2",
+]
 
 [[package]]
 name = "serde"

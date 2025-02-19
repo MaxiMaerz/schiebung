@@ -6,14 +6,6 @@ use petgraph::algo::is_cyclic_undirected;
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
 
-#[derive(Debug)]
-#[repr(C)]
-pub struct TransformRequest {
-    pub id: i32,
-    pub from: String,
-    pub to: String,
-    pub time: f64,
-}
 
 #[derive(Clone, Debug)]
 pub enum TransformType {
@@ -38,9 +30,9 @@ pub enum TfError {
 
 #[derive(Clone, Debug)]
 pub struct StampedIsometry {
-    isometry: Isometry3<f64>,
+    pub isometry: Isometry3<f64>,
     /// The time at which this isometry was recorded in seconds
-    stamp: f64,
+    pub stamp: f64,
 }
 
 impl PartialEq for StampedIsometry {
