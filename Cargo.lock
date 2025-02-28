@@ -782,7 +782,10 @@ dependencies = [
 name = "schiebung-client"
 version = "0.1.0"
 dependencies = [
+ "env_logger",
  "iceoryx2",
+ "log",
+ "nalgebra",
  "schiebung-core",
  "schiebung-types",
 ]

@@ -2,6 +2,7 @@ pub mod lib;
 
 use core::time::Duration;
 use iceoryx2::port::listener::Listener;
+use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
@@ -10,11 +11,12 @@ use nalgebra::{Isometry, Isometry3, Quaternion, Translation, Translation3, UnitQ
 use schiebung_types::{NewTransform, PubSubEvent, TransformRequest, TransformResponse};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-const CYCLE_TIME: Duration = Duration::from_secs(1);
 use log::{debug, error, info};
 use std::thread;
 use env_logger;
 
+
+const CYCLE_TIME: Duration = Duration::from_secs(1);
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
@@ -102,6 +104,7 @@ struct Server {
     request_listener: Subscriber<ipc::Service, TransformRequest, ()>,
     transform_listener: Subscriber<ipc::Service, NewTransform, ()>,
     active_publishers: HashMap<i32, TFPublisher>,
+    tf_listener_notifier: Notifier<ipc::Service>,
 }
 
 impl Server {
@@ -123,12 +126,20 @@ impl Server {
             .unwrap();
         let transform_listener = tf_service.subscriber_builder().create().unwrap();
 
+        let event_notifier = node
+            .service_builder(&"new_tf".try_into().unwrap())
+            .event()
+            .open_or_create()
+            .unwrap();
+        let notifier = event_notifier.notifier_builder().create().unwrap();
+
         Server {
             buffer: buffer,
             node: node,
             request_listener: subscriber,
             transform_listener: transform_listener,
             active_publishers: HashMap::new(),
+            tf_listener_notifier: notifier
         }
     }
 
@@ -171,6 +182,7 @@ impl Server {
                     iso,
                     lib::TransformType::Dynamic,
                 );
+                self.tf_listener_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into()).unwrap();
             };
 
             let mut inactive_pubs: Vec<i32> = Vec::new();
@@ -183,7 +195,7 @@ impl Server {
             for id in inactive_pubs {
                 self.active_publishers.remove(&id);
             };
-            self.buffer.lock().unwrap().visualize();
+            println!("{:?}", self.buffer.lock().unwrap().visualize());
         }
     }
 }
