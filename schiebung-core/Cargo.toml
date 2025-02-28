@@ -10,3 +10,5 @@ nalgebra = "*"
 petgraph = "*"
 iceoryx2 = "*"
 schiebung-types = {path = "../schiebung-types"}
+log = "*"
+env_logger = "*"

@@ -13,9 +13,20 @@ pub struct TransformRequest {
 pub struct TransformResponse {
     pub id: i32,
     pub time: f64,
-    pub isometry: [[f64; 4]; 4],
+    pub translation: [f64; 3],
+    pub rotation: [f64; 4],
 }
 
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct NewTransform {
+    pub from: [char; 100],
+    pub to: [char; 100],
+    pub time: f64,
+    pub translation: [f64; 3],
+    pub rotation: [f64; 4],
+}
 
 use iceoryx2::port::event_id::EventId;
 

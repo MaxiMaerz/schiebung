@@ -142,6 +142,10 @@ impl NodeIndex {
 
         node_id
     }
+
+    pub fn contains(&self, node: &String) -> bool {
+        self.node_ids.contains_key(node)
+    }
 }
 
 pub struct BufferTree {
@@ -237,6 +241,9 @@ impl BufferTree {
         target: String,
     ) -> Option<StampedIsometry> {
         let mut isometry = Isometry3::identity();
+        if !self.index.contains(&source) | self.index.contains(&target) {
+            return None
+        }
         for pair in self.find_path(source, target).unwrap().windows(2) {
             let source_idx = pair[0];
             let target_idx = pair[1];
