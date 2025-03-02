@@ -1,5 +1,6 @@
 use core::time::Duration;
 use iceoryx2::port::listener::Listener;
+use iceoryx2::port::notifier::Notifier;
 use iceoryx2::{config::Event, prelude::*};
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
@@ -24,6 +25,7 @@ fn encode_char_array(input: &String) -> [char; 100] {
 pub struct ListenerClient {
     pub tf_listener: Subscriber<ipc::Service, TransformResponse, ()> ,
     pub tf_requester: Publisher<ipc::Service, TransformRequest, ()>,
+    pub tf_listener_notifier: Notifier<ipc::Service>,
     pub node: Node<ipc::Service>,
 }
 
@@ -45,15 +47,23 @@ impl ListenerClient {
             .unwrap();
         let listener = subscribe_service.subscriber_builder().create().unwrap();
 
+        let notifier_service = node
+            .service_builder(&"tf_replay_1".try_into().unwrap())
+            .event()
+            .open_or_create()
+            .unwrap();
+        let notifier = notifier_service.notifier_builder().create().unwrap();
+
         ListenerClient {
             tf_listener: listener,
             tf_requester: publisher,
+            tf_listener_notifier: notifier,
             node: node,
         }
 
     }
 
-    pub fn request_transform(&self, from: &String, to: &String, time: f64) {
+    pub fn request_transform(&self, from: &String, to: &String, time: f64) -> Result<TransformResponse, PubSubEvent> {
         // First send the request
         let sample = self.tf_requester.loan_uninit().unwrap();
         let sample = sample.write_payload(TransformRequest {
@@ -66,10 +76,14 @@ impl ListenerClient {
 
         // Now wait until we get the response
         while self.node.wait(CYCLE_TIME).is_ok() {
+            println!("Waiting for response");
             while let Some(sample) = self.tf_listener.receive().unwrap() {
-                println!("{:?}", sample.payload());
+                self.tf_listener_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into()).unwrap();
+                let response = sample.payload().clone();
+                return Ok(response);
             }
         }
+        Err(PubSubEvent::Unknown)
     }
 }
 
@@ -136,5 +150,10 @@ fn main() {
     let translation = Translation3::new(0.0, 0.0, 1.0);
     let rotation = UnitQuaternion::new_normalize(Quaternion::new(0.0, 0.0, 0.0, 1.0));
     pub_client.send_transform(&"foo".to_string(), &"bar".to_string(), translation, rotation, 0.0);
-    println!("SENT!!")
+
+    let sub_client = ListenerClient::new();
+    let response = sub_client.request_transform(&"foo".to_string(), &"bar".to_string(), 0.0);
+    if let Ok(response) = response {
+        println!("Response: {:?}", response);
+    };
 }

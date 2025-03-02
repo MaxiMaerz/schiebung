@@ -241,12 +241,16 @@ impl BufferTree {
         target: String,
     ) -> Option<StampedIsometry> {
         let mut isometry = Isometry3::identity();
-        if !self.index.contains(&source) | self.index.contains(&target) {
+        println!("source: {}, target: {}", source, target);
+        if !self.index.contains(&source) | !self.index.contains(&target) {
+            println!(" Index contains source: {}, target: {}", self.index.contains(&source), self.index.contains(&target));
+            println!("index: {:?}", self.index.node_ids);
             return None
         }
         for pair in self.find_path(source, target).unwrap().windows(2) {
             let source_idx = pair[0];
             let target_idx = pair[1];
+            println!("source_idx: {}, target_idx: {}", source_idx, target_idx);
 
             if self.graph.contains_edge(source_idx, target_idx) {
                 isometry *= self
@@ -260,7 +264,7 @@ impl BufferTree {
             } else {
                 isometry *= self
                     .graph
-                    .edge_weight(source_idx, target_idx)
+                    .edge_weight(target_idx, source_idx)
                     .unwrap()
                     .history
                     .back()

@@ -66,7 +66,7 @@ impl TFPublisher {
         if let Ok(Some(event)) = self.event_listener.try_wait_one() {
             let event: PubSubEvent = event.into();
             match event {
-                PubSubEvent::SubscriberDisconnected | PubSubEvent::ProcessDied => {
+                PubSubEvent::SubscriberDisconnected | PubSubEvent::ProcessDied | PubSubEvent::ReceivedSample => {
                     return Err(PubSubEvent::SubscriberDisconnected)
                 }
                 _ => (),
@@ -76,7 +76,8 @@ impl TFPublisher {
         let target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(self.from.clone(), self.to.clone());
         match target_isometry {
             Some(target_isometry) => {
-                sample.write_payload(TransformResponse {
+                println!("Publishing transform from {} to {}", self.from, self.to);
+                let sample =sample.write_payload(TransformResponse {
                     id: self.sub_id,
                     time: target_isometry.stamp,
                     translation: [
@@ -91,6 +92,7 @@ impl TFPublisher {
                         target_isometry.isometry.rotation.w,
                     ],
                 });
+                sample.send().unwrap();
             },
             None => error!("No transform from {} to {}", self.from, self.to)
         }
@@ -187,6 +189,7 @@ impl Server {
 
             let mut inactive_pubs: Vec<i32> = Vec::new();
             for (id, publisher) in self.active_publishers.iter() {
+                println!("DROP {}", id);
                 match publisher.publish() {
                     Err(PubSubEvent::SubscriberDisconnected) => inactive_pubs.push(*id),
                     _ => (),

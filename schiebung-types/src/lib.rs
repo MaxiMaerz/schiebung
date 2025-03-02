@@ -8,7 +8,7 @@ pub struct TransformRequest {
     pub time: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TransformResponse {
     pub id: i32,
