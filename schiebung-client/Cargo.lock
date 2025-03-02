@@ -688,6 +688,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "schiebung-client"
+version = "0.1.0"
+dependencies = [
+ "iceoryx2",
+ "schiebung-core",
+ "schiebung-types",
+]
+
+[[package]]
 name = "schiebung-core"
 version = "0.1.0"
 dependencies = [
