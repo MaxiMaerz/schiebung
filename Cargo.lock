@@ -1151,3 +1151,127 @@ name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+
+[[patch.unused]]
+name = "action_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "actionlib_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "builtin_interfaces"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "composition_interfaces"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "diagnostic_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "example_interfaces"
+version = "0.12.0"
+
+[[patch.unused]]
+name = "examples_rclrs_message_demo"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "examples_rclrs_minimal_client_service"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "examples_rclrs_minimal_pub_sub"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "geometry_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "lifecycle_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "nav_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "rcl_interfaces"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "rclrs"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "rclrs_example_msgs"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "rosgraph_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "rosidl_runtime_rs"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "rust_pubsub"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "sensor_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "service_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "shape_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "statistics_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "std_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "std_srvs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "stereo_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "test_msgs"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "tf2_msgs"
+version = "0.40.1"
+
+[[patch.unused]]
+name = "trajectory_msgs"
+version = "5.3.5"
+
+[[patch.unused]]
+name = "type_description_interfaces"
+version = "2.0.2"
+
+[[patch.unused]]
+name = "unique_identifier_msgs"
+version = "2.5.0"
+
+[[patch.unused]]
+name = "visualization_msgs"
+version = "5.3.5"

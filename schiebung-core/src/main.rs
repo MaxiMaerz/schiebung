@@ -16,7 +16,7 @@ use std::thread;
 use env_logger;
 
 
-const CYCLE_TIME: Duration = Duration::from_secs(1);
+const CYCLE_TIME: Duration = Duration::from_millis(10);
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
@@ -159,6 +159,7 @@ impl Server {
                         self.node.clone(),
                     ),
                 );
+                info!("Added publisher for {}", tf_request.id);
             };
             while let Some(sample) = self.transform_listener.receive().unwrap() {
                 let new_tf = sample.payload();
@@ -185,17 +186,18 @@ impl Server {
                     lib::TransformType::Dynamic,
                 );
                 self.tf_listener_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into()).unwrap();
+                // info!("Received transform from {} to {}", new_tf.from, new_tf.to);
             };
 
             let mut inactive_pubs: Vec<i32> = Vec::new();
             for (id, publisher) in self.active_publishers.iter() {
-                println!("DROP {}", id);
                 match publisher.publish() {
                     Err(PubSubEvent::SubscriberDisconnected) => inactive_pubs.push(*id),
                     _ => (),
                 }
             }
             for id in inactive_pubs {
+                info!("Removing publisher for {}", id);
                 self.active_publishers.remove(&id);
             };
             println!("{:?}", self.buffer.lock().unwrap().visualize());
