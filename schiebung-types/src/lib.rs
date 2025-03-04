@@ -1,3 +1,22 @@
+#[derive(Clone, Debug)]
+pub enum TransformType {
+    /// Changes over time
+    Dynamic = 0,
+    /// Does not change over time
+    Static = 1,
+}
+
+impl TryFrom<u8> for TransformType {
+    type Error = ();
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(TransformType::Dynamic),
+            1 => Ok(TransformType::Static),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TransformRequest {
@@ -24,6 +43,7 @@ pub struct NewTransform {
     pub time: f64,
     pub translation: [f64; 3],
     pub rotation: [f64; 4],
+    pub kind: u8,
 }
 
 use iceoryx2::port::event_id::EventId;

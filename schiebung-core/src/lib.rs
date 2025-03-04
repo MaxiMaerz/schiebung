@@ -5,14 +5,7 @@ use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
-
-#[derive(Clone, Debug)]
-pub enum TransformType {
-    /// Does not change over time
-    Static,
-    /// Changes over time
-    Dynamic,
-}
+use schiebung_types::TransformType;
 
 /// Enumerates the different types of errors
 #[derive(Clone, Debug)]
@@ -318,8 +311,8 @@ impl BufferTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
     use nalgebra::geometry::Isometry3;
-    use approx::assert_relative_eq; 
 
     #[test]
     fn test_buffer_tree_update() {
@@ -508,11 +501,10 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_robot_arm_transforms() {
         let mut buffer_tree = BufferTree::new();
-        
+
         // Define test data as a vector of (source, target, translation, rotation, timestamp) tuples
         let transforms = vec![
             (
@@ -525,7 +517,12 @@ mod tests {
                 "shoulder_link",
                 "upper_arm_link",
                 [0.0, 0.0, 0.0],
-                [0.5001990421112379, 0.49980087872426926, -0.4998008786217583, 0.5001990420086454],
+                [
+                    0.5001990421112379,
+                    0.49980087872426926,
+                    -0.4998008786217583,
+                    0.5001990420086454,
+                ],
             ),
             (
                 "base_link_inertia",
@@ -549,7 +546,12 @@ mod tests {
                 "wrist_2_link",
                 "wrist_3_link",
                 [0.0, 0.0996, -2.042830148012698e-11],
-                [-0.7071067812590626, 8.659560562354933e-17, 8.880526795522719e-27, 0.7071067811140325],
+                [
+                    -0.7071067812590626,
+                    8.659560562354933e-17,
+                    8.880526795522719e-27,
+                    0.7071067811140325,
+                ],
             ),
         ];
 
@@ -561,9 +563,12 @@ mod tests {
             let stamped_isometry = StampedIsometry {
                 isometry: Isometry3::from_parts(
                     nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
-                    nalgebra::UnitQuaternion::from_quaternion(
-                        nalgebra::Quaternion::new(rotation[3], rotation[0], rotation[1], rotation[2])
-                    )
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation[3],
+                        rotation[0],
+                        rotation[1],
+                        rotation[2],
+                    )),
                 ),
                 stamp: timestamp,
             };
@@ -576,10 +581,8 @@ mod tests {
             );
         }
 
-        let transform = buffer_tree.lookup_latest_transform(
-            "base_link_inertia".to_string(),
-            "shoulder_link".to_string(),
-        );
+        let transform = buffer_tree
+            .lookup_latest_transform("base_link_inertia".to_string(), "shoulder_link".to_string());
         assert!(transform.is_some());
         let transform = transform.unwrap();
         let translation = transform.isometry.translation.vector;
@@ -596,21 +599,16 @@ mod tests {
         assert_relative_eq!(rotation.j, 0.0, epsilon = 1e-3);
         assert_relative_eq!(rotation.k, 0.001, epsilon = 1e-3);
 
-
         // Test that we can find paths between arbitrary frames
-        let path = buffer_tree.find_path(
-            "base_link_inertia".to_string(),
-            "wrist_3_link".to_string(),
-        );
+        let path =
+            buffer_tree.find_path("base_link_inertia".to_string(), "wrist_3_link".to_string());
         assert!(path.is_some());
 
         // Test that we can look up transforms
-        let transform = buffer_tree.lookup_latest_transform(
-            "base_link_inertia".to_string(),
-            "wrist_3_link".to_string(),
-        );
+        let transform = buffer_tree
+            .lookup_latest_transform("base_link_inertia".to_string(), "wrist_3_link".to_string());
         assert!(transform.is_some());
-        
+
         // Add these assertions
         let transform = transform.unwrap();
         let translation = transform.isometry.translation.vector;
@@ -625,13 +623,12 @@ mod tests {
         assert_relative_eq!(rotation.0, -1.571, epsilon = 1e-2);
         assert_relative_eq!(rotation.1, -0.002, epsilon = 1e-2);
         assert_relative_eq!(rotation.2, 3.142, epsilon = 1e-2);
-
     }
 
     #[test]
     fn test_robot_arm_transform_inverse() {
         let mut buffer_tree = BufferTree::new();
-        
+
         // Define test data as a vector of (source, target, translation, rotation) tuples
         let transforms = vec![
             (
@@ -644,7 +641,12 @@ mod tests {
                 "shoulder_link",
                 "upper_arm_link",
                 [0.0, 0.0, 0.0],
-                [0.5001990421112379, 0.49980087872426926, -0.4998008786217583, 0.5001990420086454],
+                [
+                    0.5001990421112379,
+                    0.49980087872426926,
+                    -0.4998008786217583,
+                    0.5001990420086454,
+                ],
             ),
             (
                 "base_link_inertia",
@@ -668,7 +670,12 @@ mod tests {
                 "wrist_2_link",
                 "wrist_3_link",
                 [0.0, 0.0996, -2.042830148012698e-11],
-                [-0.7071067812590626, 8.659560562354933e-17, 8.880526795522719e-27, 0.7071067811140325],
+                [
+                    -0.7071067812590626,
+                    8.659560562354933e-17,
+                    8.880526795522719e-27,
+                    0.7071067811140325,
+                ],
             ),
         ];
 
@@ -679,9 +686,12 @@ mod tests {
             let stamped_isometry = StampedIsometry {
                 isometry: Isometry3::from_parts(
                     nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
-                    nalgebra::UnitQuaternion::from_quaternion(
-                        nalgebra::Quaternion::new(rotation[3], rotation[0], rotation[1], rotation[2])
-                    )
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation[3],
+                        rotation[0],
+                        rotation[1],
+                        rotation[2],
+                    )),
                 ),
                 stamp: timestamp,
             };
@@ -694,10 +704,8 @@ mod tests {
             );
         }
 
-        let transform = buffer_tree.lookup_latest_transform(
-            "wrist_3_link".to_string(),
-            "base_link_inertia".to_string(),
-        );
+        let transform = buffer_tree
+            .lookup_latest_transform("wrist_3_link".to_string(), "base_link_inertia".to_string());
         assert!(transform.is_some());
         let transform = transform.unwrap();
         let translation = transform.isometry.translation.vector;

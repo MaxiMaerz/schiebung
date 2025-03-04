@@ -3,5 +3,5 @@
 members = [
     "schiebung-core",
     "schiebung-client",
-    "schiebung-types",
+    "schiebung-types", "schiebung_server",
 ]

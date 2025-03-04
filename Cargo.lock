@@ -795,8 +795,6 @@ name = "schiebung-core"
 version = "0.1.0"
 dependencies = [
  "approx",
- "env_logger",
- "iceoryx2",
  "log",
  "nalgebra",
  "petgraph",
@@ -808,6 +806,18 @@ name = "schiebung-types"
 version = "0.1.0"
 dependencies = [
  "iceoryx2",
+]
+
+[[package]]
+name = "schiebung_server"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "iceoryx2",
+ "log",
+ "nalgebra",
+ "schiebung-core",
+ "schiebung-types",
 ]
 
 [[package]]
