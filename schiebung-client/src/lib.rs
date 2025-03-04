@@ -1,13 +1,13 @@
 use core::time::Duration;
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
-use iceoryx2::{config::Event, prelude::*};
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
-use schiebung_types::{NewTransform, PubSubEvent, TransformRequest, TransformResponse};
+use iceoryx2::{config::Event, prelude::*};
 use nalgebra::{Isometry, Isometry3, Quaternion, Translation, Translation3, UnitQuaternion};
+use schiebung_types::{NewTransform, PubSubEvent, TransformRequest, TransformResponse};
 
-const CYCLE_TIME: Duration = Duration::from_millis(10);
+const CYCLE_TIME: Duration = Duration::from_micros(10);
 
 fn encode_char_array(input: &String) -> [char; 100] {
     let mut char_array: [char; 100] = ['\0'; 100];
@@ -22,7 +22,7 @@ fn encode_char_array(input: &String) -> [char; 100] {
 }
 
 pub struct ListenerClient {
-    pub tf_listener: Subscriber<ipc::Service, TransformResponse, ()> ,
+    pub tf_listener: Subscriber<ipc::Service, TransformResponse, ()>,
     pub tf_requester: Publisher<ipc::Service, TransformRequest, ()>,
     pub tf_listener_notifier: Notifier<ipc::Service>,
     pub node: Node<ipc::Service>,
@@ -59,10 +59,14 @@ impl ListenerClient {
             tf_listener_notifier: notifier,
             node: node,
         }
-
     }
 
-    pub fn request_transform(&self, from: &String, to: &String, time: f64) -> Result<TransformResponse, PubSubEvent> {
+    pub fn request_transform(
+        &self,
+        from: &String,
+        to: &String,
+        time: f64,
+    ) -> Result<TransformResponse, PubSubEvent> {
         // First send the request
         let sample = self.tf_requester.loan_uninit().unwrap();
         let sample = sample.write_payload(TransformRequest {
@@ -76,7 +80,9 @@ impl ListenerClient {
         // Now wait until we get the response
         while self.node.wait(CYCLE_TIME).is_ok() {
             while let Some(sample) = self.tf_listener.receive().unwrap() {
-                self.tf_listener_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into()).unwrap();
+                self.tf_listener_notifier
+                    .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())
+                    .unwrap();
                 let response = sample.payload().clone();
                 return Ok(response);
             }
@@ -85,8 +91,7 @@ impl ListenerClient {
     }
 }
 
-
-pub struct  PublisherClient {
+pub struct PublisherClient {
     pub tf_publisher: Publisher<ipc::Service, NewTransform, ()>,
     pub receiver_event: Listener<ipc::Service>,
     pub node: Node<ipc::Service>,
@@ -114,12 +119,17 @@ impl PublisherClient {
             receiver_event: event_listener,
             node: node,
         }
-
-
     }
 
-    pub fn send_transform(&self, from: &String, to: &String, translation: Translation3<f64>, rotation: UnitQuaternion<f64>, stamp: f64) {
-        let new_tf = NewTransform{
+    pub fn send_transform(
+        &self,
+        from: &String,
+        to: &String,
+        translation: Translation3<f64>,
+        rotation: UnitQuaternion<f64>,
+        stamp: f64,
+    ) {
+        let new_tf = NewTransform {
             from: encode_char_array(from),
             to: encode_char_array(to),
             time: stamp,

@@ -6,7 +6,6 @@ use petgraph::algo::is_cyclic_undirected;
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
 
-
 #[derive(Clone, Debug)]
 pub enum TransformType {
     /// Does not change over time
@@ -241,13 +240,12 @@ impl BufferTree {
         target: String,
     ) -> Option<StampedIsometry> {
         let mut isometry = Isometry3::identity();
-        if !self.index.contains(&source) | !self.index.contains(&target) {
-            return None
+        if !self.index.contains(&source) || !self.index.contains(&target) {
+            return None;
         }
         for pair in self.find_path(source, target).unwrap().windows(2) {
             let source_idx = pair[0];
             let target_idx = pair[1];
-            println!("source_idx: {}, target_idx: {}", source_idx, target_idx);
 
             if self.graph.contains_edge(source_idx, target_idx) {
                 isometry *= self
@@ -270,6 +268,8 @@ impl BufferTree {
                     .inverse();
             }
         }
+        println!("isometry: {:?}", isometry.translation.vector);
+        println!("isometry: {:?}", isometry.rotation.euler_angles());
         Some(StampedIsometry {
             isometry,
             stamp: 0.0,
@@ -319,6 +319,7 @@ impl BufferTree {
 mod tests {
     use super::*;
     use nalgebra::geometry::Isometry3;
+    use approx::assert_relative_eq; 
 
     #[test]
     fn test_buffer_tree_update() {
@@ -415,95 +416,301 @@ mod tests {
             TransformType::Static,
         );
     }
-}
 
-#[test]
-fn test_find_path() {
-    let mut buffer_tree = BufferTree::new();
+    #[test]
+    fn test_find_path() {
+        let mut buffer_tree = BufferTree::new();
 
-    buffer_tree.update(
-        "A".to_string(),
-        "B".to_string(),
-        StampedIsometry {
-            isometry: Isometry3::identity(),
-            stamp: 1.0,
-        },
-        TransformType::Dynamic,
-    );
+        buffer_tree.update(
+            "A".to_string(),
+            "B".to_string(),
+            StampedIsometry {
+                isometry: Isometry3::identity(),
+                stamp: 1.0,
+            },
+            TransformType::Dynamic,
+        );
 
-    buffer_tree.update(
-        "A".to_string(),
-        "C".to_string(),
-        StampedIsometry {
-            isometry: Isometry3::identity(),
-            stamp: 2.0,
-        },
-        TransformType::Dynamic,
-    );
+        buffer_tree.update(
+            "A".to_string(),
+            "C".to_string(),
+            StampedIsometry {
+                isometry: Isometry3::identity(),
+                stamp: 2.0,
+            },
+            TransformType::Dynamic,
+        );
 
-    buffer_tree.update(
-        "B".to_string(),
-        "D".to_string(),
-        StampedIsometry {
-            isometry: Isometry3::identity(),
-            stamp: 3.0,
-        },
-        TransformType::Dynamic,
-    );
+        buffer_tree.update(
+            "B".to_string(),
+            "D".to_string(),
+            StampedIsometry {
+                isometry: Isometry3::identity(),
+                stamp: 3.0,
+            },
+            TransformType::Dynamic,
+        );
 
-    buffer_tree.update(
-        "B".to_string(),
-        "E".to_string(),
-        StampedIsometry {
-            isometry: Isometry3::identity(),
-            stamp: 3.0,
-        },
-        TransformType::Dynamic,
-    );
+        buffer_tree.update(
+            "B".to_string(),
+            "E".to_string(),
+            StampedIsometry {
+                isometry: Isometry3::identity(),
+                stamp: 3.0,
+            },
+            TransformType::Dynamic,
+        );
 
-    println!("{:?}", buffer_tree.visualize());
+        println!("{:?}", buffer_tree.visualize());
 
-    let result = buffer_tree.find_path("D".to_string(), "B".to_string());
-    assert_eq!(
-        result,
-        Some(vec![
-            buffer_tree.index.index("D".to_string()),
-            buffer_tree.index.index("B".to_string())
-        ])
-    );
+        let result = buffer_tree.find_path("D".to_string(), "B".to_string());
+        assert_eq!(
+            result,
+            Some(vec![
+                buffer_tree.index.index("D".to_string()),
+                buffer_tree.index.index("B".to_string())
+            ])
+        );
 
-    let result = buffer_tree.find_path("D".to_string(), "C".to_string());
-    assert_eq!(
-        result,
-        Some(vec![
-            buffer_tree.index.index("D".to_string()),
-            buffer_tree.index.index("B".to_string()),
+        let result = buffer_tree.find_path("D".to_string(), "C".to_string());
+        assert_eq!(
+            result,
+            Some(vec![
+                buffer_tree.index.index("D".to_string()),
+                buffer_tree.index.index("B".to_string()),
+                buffer_tree.index.index("A".to_string()),
+                buffer_tree.index.index("C".to_string()),
+            ])
+        );
+
+        let result = buffer_tree.find_path("D".to_string(), "E".to_string());
+        assert_eq!(
+            result,
+            Some(vec![
+                buffer_tree.index.index("D".to_string()),
+                buffer_tree.index.index("B".to_string()),
+                buffer_tree.index.index("E".to_string()),
+            ])
+        );
+
+        let result = buffer_tree.find_path("A".to_string(), "E".to_string());
+        assert_eq!(
+            result,
+            Some(vec![
+                buffer_tree.index.index("A".to_string()),
+                buffer_tree.index.index("B".to_string()),
+                buffer_tree.index.index("E".to_string()),
+            ])
+        );
+        let edge = buffer_tree.graph.edge_weight(
             buffer_tree.index.index("A".to_string()),
-            buffer_tree.index.index("C".to_string()),
-        ])
-    );
-
-    let result = buffer_tree.find_path("D".to_string(), "E".to_string());
-    assert_eq!(
-        result,
-        Some(vec![
-            buffer_tree.index.index("D".to_string()),
             buffer_tree.index.index("B".to_string()),
-            buffer_tree.index.index("E".to_string()),
-        ])
-    );
+        );
+    }
 
-    let result = buffer_tree.find_path("A".to_string(), "E".to_string());
-    assert_eq!(
-        result,
-        Some(vec![
-            buffer_tree.index.index("A".to_string()),
-            buffer_tree.index.index("B".to_string()),
-            buffer_tree.index.index("E".to_string()),
-        ])
-    );
-    let edge = buffer_tree.graph.edge_weight(
-        buffer_tree.index.index("A".to_string()),
-        buffer_tree.index.index("B".to_string()),
-    );
+
+    #[test]
+    fn test_robot_arm_transforms() {
+        let mut buffer_tree = BufferTree::new();
+        
+        // Define test data as a vector of (source, target, translation, rotation, timestamp) tuples
+        let transforms = vec![
+            (
+                "upper_arm_link",
+                "forearm_link",
+                [-0.425, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ),
+            (
+                "shoulder_link",
+                "upper_arm_link",
+                [0.0, 0.0, 0.0],
+                [0.5001990421112379, 0.49980087872426926, -0.4998008786217583, 0.5001990420086454],
+            ),
+            (
+                "base_link_inertia",
+                "shoulder_link",
+                [0.0, 0.0, 0.1625],
+                [0.0, 0.0, 0.0, 1.0],
+            ),
+            (
+                "forearm_link",
+                "wrist_1_link",
+                [-0.3922, 0.0, 0.1333],
+                [0.0, 0.0, -0.7068251811053659, 0.7073882691671998],
+            ),
+            (
+                "wrist_1_link",
+                "wrist_2_link",
+                [0.0, -0.0997, -2.044881182297852e-11],
+                [0.7071067812590626, 0.0, 0.0, 0.7071067811140325],
+            ),
+            (
+                "wrist_2_link",
+                "wrist_3_link",
+                [0.0, 0.0996, -2.042830148012698e-11],
+                [-0.7071067812590626, 8.659560562354933e-17, 8.880526795522719e-27, 0.7071067811140325],
+            ),
+        ];
+
+        // Convert seconds and nanoseconds to floating point seconds
+        let timestamp = 1741097108.0 + 171207063.0 * 1e-9;
+
+        // Add all transforms to the buffer
+        for (source, target, translation, rotation) in transforms {
+            let stamped_isometry = StampedIsometry {
+                isometry: Isometry3::from_parts(
+                    nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
+                    nalgebra::UnitQuaternion::from_quaternion(
+                        nalgebra::Quaternion::new(rotation[3], rotation[0], rotation[1], rotation[2])
+                    )
+                ),
+                stamp: timestamp,
+            };
+
+            buffer_tree.update(
+                source.to_string(),
+                target.to_string(),
+                stamped_isometry,
+                TransformType::Dynamic,
+            );
+        }
+
+        let transform = buffer_tree.lookup_latest_transform(
+            "base_link_inertia".to_string(),
+            "shoulder_link".to_string(),
+        );
+        assert!(transform.is_some());
+        let transform = transform.unwrap();
+        let translation = transform.isometry.translation.vector;
+        let rotation = transform.isometry.rotation.into_inner();
+
+        // Check translation components
+        assert_relative_eq!(translation[0], 0.0, epsilon = 1e-3);
+        assert_relative_eq!(translation[1], 0.0, epsilon = 1e-3);
+        assert_relative_eq!(translation[2], 0.1625, epsilon = 1e-3);
+
+        // Check quaternion components (w, x, y, z)
+        assert_relative_eq!(rotation.w, 1.0, epsilon = 1e-3);
+        assert_relative_eq!(rotation.i, 0.0, epsilon = 1e-3);
+        assert_relative_eq!(rotation.j, 0.0, epsilon = 1e-3);
+        assert_relative_eq!(rotation.k, 0.001, epsilon = 1e-3);
+
+
+        // Test that we can find paths between arbitrary frames
+        let path = buffer_tree.find_path(
+            "base_link_inertia".to_string(),
+            "wrist_3_link".to_string(),
+        );
+        assert!(path.is_some());
+
+        // Test that we can look up transforms
+        let transform = buffer_tree.lookup_latest_transform(
+            "base_link_inertia".to_string(),
+            "wrist_3_link".to_string(),
+        );
+        assert!(transform.is_some());
+        
+        // Add these assertions
+        let transform = transform.unwrap();
+        let translation = transform.isometry.translation.vector;
+        let rotation = transform.isometry.rotation.euler_angles();
+
+        // Check translation components
+        assert_relative_eq!(translation[0], -0.001, epsilon = 1e-3);
+        assert_relative_eq!(translation[1], -0.233, epsilon = 1e-3);
+        assert_relative_eq!(translation[2], 1.079, epsilon = 1e-3);
+
+        // Check quaternion components (w, x, y, z)
+        assert_relative_eq!(rotation.0, -1.571, epsilon = 1e-2);
+        assert_relative_eq!(rotation.1, -0.002, epsilon = 1e-2);
+        assert_relative_eq!(rotation.2, 3.142, epsilon = 1e-2);
+
+    }
+
+    #[test]
+    fn test_robot_arm_transform_inverse() {
+        let mut buffer_tree = BufferTree::new();
+        
+        // Define test data as a vector of (source, target, translation, rotation) tuples
+        let transforms = vec![
+            (
+                "upper_arm_link",
+                "forearm_link",
+                [-0.425, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ),
+            (
+                "shoulder_link",
+                "upper_arm_link",
+                [0.0, 0.0, 0.0],
+                [0.5001990421112379, 0.49980087872426926, -0.4998008786217583, 0.5001990420086454],
+            ),
+            (
+                "base_link_inertia",
+                "shoulder_link",
+                [0.0, 0.0, 0.1625],
+                [0.0, 0.0, 0.0, 1.0],
+            ),
+            (
+                "forearm_link",
+                "wrist_1_link",
+                [-0.3922, 0.0, 0.1333],
+                [0.0, 0.0, -0.7068251811053659, 0.7073882691671998],
+            ),
+            (
+                "wrist_1_link",
+                "wrist_2_link",
+                [0.0, -0.0997, -2.044881182297852e-11],
+                [0.7071067812590626, 0.0, 0.0, 0.7071067811140325],
+            ),
+            (
+                "wrist_2_link",
+                "wrist_3_link",
+                [0.0, 0.0996, -2.042830148012698e-11],
+                [-0.7071067812590626, 8.659560562354933e-17, 8.880526795522719e-27, 0.7071067811140325],
+            ),
+        ];
+
+        let timestamp = 1741097108.0 + 171207063.0 * 1e-9;
+
+        // Add all transforms to the buffer
+        for (source, target, translation, rotation) in transforms {
+            let stamped_isometry = StampedIsometry {
+                isometry: Isometry3::from_parts(
+                    nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
+                    nalgebra::UnitQuaternion::from_quaternion(
+                        nalgebra::Quaternion::new(rotation[3], rotation[0], rotation[1], rotation[2])
+                    )
+                ),
+                stamp: timestamp,
+            };
+
+            buffer_tree.update(
+                source.to_string(),
+                target.to_string(),
+                stamped_isometry,
+                TransformType::Dynamic,
+            );
+        }
+
+        let transform = buffer_tree.lookup_latest_transform(
+            "wrist_3_link".to_string(),
+            "base_link_inertia".to_string(),
+        );
+        assert!(transform.is_some());
+        let transform = transform.unwrap();
+        let translation = transform.isometry.translation.vector;
+        let rotation = transform.isometry.rotation.euler_angles();
+
+        // Check translation components (should be inverse of original transform)
+        assert_relative_eq!(translation[0], 0.001, epsilon = 1e-3);
+        assert_relative_eq!(translation[1], 1.079, epsilon = 1e-3);
+        assert_relative_eq!(translation[2], -0.233, epsilon = 1e-3);
+
+        // Check euler angles (should be inverse of original transform)
+        assert_relative_eq!(rotation.0, -1.571, epsilon = 1e-2);
+        assert_relative_eq!(rotation.1, 0.00, epsilon = 1e-2);
+        assert_relative_eq!(rotation.2, 3.14, epsilon = 1e-2);
+    }
 }

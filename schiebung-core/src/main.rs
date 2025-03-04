@@ -1,22 +1,22 @@
 pub mod lib;
 
 use core::time::Duration;
+use env_logger;
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
 use lib::StampedIsometry;
+use log::{debug, error, info};
 use nalgebra::{Isometry, Isometry3, Quaternion, Translation, Translation3, UnitQuaternion};
 use schiebung_types::{NewTransform, PubSubEvent, TransformRequest, TransformResponse};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use log::{debug, error, info};
 use std::thread;
-use env_logger;
+use std::time::Instant;
 
-
-const CYCLE_TIME: Duration = Duration::from_millis(10);
+const CYCLE_TIME: Duration = Duration::from_micros(10);
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
@@ -66,18 +66,22 @@ impl TFPublisher {
         if let Ok(Some(event)) = self.event_listener.try_wait_one() {
             let event: PubSubEvent = event.into();
             match event {
-                PubSubEvent::SubscriberDisconnected | PubSubEvent::ProcessDied | PubSubEvent::ReceivedSample => {
-                    return Err(PubSubEvent::SubscriberDisconnected)
-                }
+                PubSubEvent::SubscriberDisconnected
+                | PubSubEvent::ProcessDied
+                | PubSubEvent::ReceivedSample => return Err(PubSubEvent::SubscriberDisconnected),
                 _ => (),
             }
         }
         let sample = self.publisher.loan_uninit().unwrap();
-        let target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(self.from.clone(), self.to.clone());
+        let target_isometry = self
+            .buffer
+            .lock()
+            .unwrap()
+            .lookup_latest_transform(self.from.clone(), self.to.clone());
         match target_isometry {
             Some(target_isometry) => {
                 println!("Publishing transform from {} to {}", self.from, self.to);
-                let sample =sample.write_payload(TransformResponse {
+                let sample = sample.write_payload(TransformResponse {
                     id: self.sub_id,
                     time: target_isometry.stamp,
                     translation: [
@@ -93,8 +97,8 @@ impl TFPublisher {
                     ],
                 });
                 sample.send().unwrap();
-            },
-            None => error!("No transform from {} to {}", self.from, self.to)
+            }
+            None => error!("No transform from {} to {}", self.from, self.to),
         }
         Ok(())
     }
@@ -141,7 +145,7 @@ impl Server {
             request_listener: subscriber,
             transform_listener: transform_listener,
             active_publishers: HashMap::new(),
-            tf_listener_notifier: notifier
+            tf_listener_notifier: notifier,
         }
     }
 
@@ -160,7 +164,7 @@ impl Server {
                     ),
                 );
                 info!("Added publisher for {}", tf_request.id);
-            };
+            }
             while let Some(sample) = self.transform_listener.receive().unwrap() {
                 let new_tf = sample.payload();
                 let iso = StampedIsometry {
@@ -171,10 +175,10 @@ impl Server {
                             new_tf.translation[2],
                         ),
                         UnitQuaternion::new_normalize(Quaternion::new(
+                            new_tf.rotation[3],
                             new_tf.rotation[0],
                             new_tf.rotation[1],
                             new_tf.rotation[2],
-                            new_tf.rotation[3],
                         )),
                     ),
                     stamp: new_tf.time,
@@ -185,9 +189,11 @@ impl Server {
                     iso,
                     lib::TransformType::Dynamic,
                 );
-                self.tf_listener_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into()).unwrap();
+                self.tf_listener_notifier
+                    .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())
+                    .unwrap();
                 // info!("Received transform from {} to {}", new_tf.from, new_tf.to);
-            };
+            }
 
             let mut inactive_pubs: Vec<i32> = Vec::new();
             for (id, publisher) in self.active_publishers.iter() {
@@ -199,14 +205,12 @@ impl Server {
             for id in inactive_pubs {
                 info!("Removing publisher for {}", id);
                 self.active_publishers.remove(&id);
-            };
-            println!("{:?}", self.buffer.lock().unwrap().visualize());
+            }
         }
     }
 }
 
 fn main() {
-
     env_logger::init();
     let mut server = Server::new();
     server.spin();

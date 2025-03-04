@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TransformRequest {
@@ -16,7 +15,6 @@ pub struct TransformResponse {
     pub translation: [f64; 3],
     pub rotation: [f64; 4],
 }
-
 
 #[derive(Debug)]
 #[repr(C)]
