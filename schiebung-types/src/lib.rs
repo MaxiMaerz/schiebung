@@ -17,10 +17,11 @@ impl TryFrom<u8> for TransformType {
     }
 }
 
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TransformRequest {
-    pub id: i32,
+    pub id: u128,
     pub from: [char; 100],
     pub to: [char; 100],
     pub time: f64,
@@ -29,7 +30,6 @@ pub struct TransformRequest {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TransformResponse {
-    pub id: i32,
     pub time: f64,
     pub translation: [f64; 3],
     pub rotation: [f64; 4],
@@ -54,9 +54,10 @@ pub enum PubSubEvent {
     SubscriberConnected = 2,
     SubscriberDisconnected = 3,
     SentSample = 4,
-    ReceivedSample = 5,
-    SentHistory = 6,
-    ProcessDied = 7,
+    Error = 5,
+    ReceivedSample = 6,
+    SentHistory = 7,
+    ProcessDied = 8,
     Unknown,
 }
 
@@ -74,9 +75,10 @@ impl From<EventId> for PubSubEvent {
             2 => PubSubEvent::SubscriberConnected,
             3 => PubSubEvent::SubscriberDisconnected,
             4 => PubSubEvent::SentSample,
-            5 => PubSubEvent::ReceivedSample,
-            6 => PubSubEvent::SentHistory,
-            7 => PubSubEvent::ProcessDied,
+            5 => PubSubEvent::Error,
+            6 => PubSubEvent::ReceivedSample,
+            7 => PubSubEvent::SentHistory,
+            8 => PubSubEvent::ProcessDied,
             _ => PubSubEvent::Unknown,
         }
     }

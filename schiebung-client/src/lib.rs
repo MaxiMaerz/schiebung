@@ -1,4 +1,3 @@
-use core::time::Duration;
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
@@ -44,13 +43,16 @@ impl ListenerClient {
             .open_or_create()?;
         let publish_service_notifier = publish_service_notifier.notifier_builder().create()?;
 
+        let sub_id = publisher.id().value().to_string();
+        let service_name: ServiceName =
+            ServiceName::new(&("tf_replay_".to_owned() + &sub_id.clone().to_string())).unwrap();
         let subscribe_service = node
-            .service_builder(&"tf_replay_1".try_into().unwrap())
+            .service_builder(&service_name)
             .publish_subscribe::<TransformResponse>()
             .open_or_create()?;
         let listener = subscribe_service.subscriber_builder().create()?;
         let notifier_service = node
-            .service_builder(&"tf_replay_1".try_into().unwrap())
+            .service_builder(&service_name)
             .event()
             .open_or_create()?;
         let tf_listener_event_listener = notifier_service.listener_builder().create()?;
@@ -75,7 +77,7 @@ impl ListenerClient {
             from: encode_char_array(from),
             to: encode_char_array(to),
             time: time,
-            id: 1 as i32,
+            id: self.tf_requester.id().value(),
         });
         sample.send().unwrap();
         self.tf_requester_notifier
@@ -95,18 +97,13 @@ impl ListenerClient {
                         .payload()
                         .clone())
                 }
+                PubSubEvent::Error => {
+                    return Err(event);
+                }
                 _ => (),
             }
         }
         Err(PubSubEvent::Unknown)
-    }
-}
-
-impl Drop for ListenerClient {
-    fn drop(&mut self) {
-        self.tf_requester_notifier
-            .notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into())
-            .unwrap();
     }
 }
 

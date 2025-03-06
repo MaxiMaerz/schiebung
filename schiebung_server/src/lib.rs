@@ -17,19 +17,20 @@ use std::sync::{Arc, Mutex};
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
+/// The TFPublisher maintains the publishers for each Subscription to the Server
+/// We want to keep track to replay faster when a transform is requested without recreating the required services
+/// Currently there is no way to unregister a publisher, so registering to many subscribers will lead to a resource exhaustion
 struct TFPublisher {
     buffer: Arc<Mutex<BufferTree>>,
     from: String,
     to: String,
-    sub_id: i32,
     publisher: Publisher<ipc::Service, TransformResponse, ()>,
-    event_listener: Listener<ipc::Service>,
     event_notifier: Notifier<ipc::Service>,
 }
 impl TFPublisher {
     fn new(
         buffer: Arc<Mutex<BufferTree>>,
-        sub_id: i32,
+        sub_id: u128,
         from: String,
         to: String,
         node: Arc<Node<ipc::Service>>,
@@ -48,28 +49,16 @@ impl TFPublisher {
             .event()
             .open_or_create()
             .unwrap();
-        let event_listener = event_service.listener_builder().create().unwrap();
         let event_notifier = event_service.notifier_builder().create().unwrap();
         TFPublisher {
             buffer: buffer,
             from: from,
             to: to,
-            sub_id: sub_id,
             publisher: publisher,
-            event_listener: event_listener,
             event_notifier: event_notifier,
         }
     }
     fn publish(&self) -> Result<(), PubSubEvent> {
-        if let Ok(Some(event)) = self.event_listener.try_wait_one() {
-            let event: PubSubEvent = event.into();
-            match event {
-                PubSubEvent::SubscriberDisconnected
-                | PubSubEvent::ProcessDied
-                | PubSubEvent::ReceivedSample => return Err(PubSubEvent::SubscriberDisconnected),
-                _ => (),
-            }
-        }
         let sample = self.publisher.loan_uninit().unwrap();
         let target_isometry = self
             .buffer
@@ -80,7 +69,6 @@ impl TFPublisher {
             Some(target_isometry) => {
                 println!("Publishing transform from {} to {}", self.from, self.to);
                 let sample = sample.write_payload(TransformResponse {
-                    id: self.sub_id,
                     time: target_isometry.stamp,
                     translation: [
                         target_isometry.isometry.translation.x,
@@ -98,17 +86,25 @@ impl TFPublisher {
                 self.event_notifier
                     .notify_with_custom_event_id(PubSubEvent::SentSample.into())
                     .unwrap();
-            }
-            None => error!("No transform from {} to {}", self.from, self.to),
+            },
+            None => {
+                error!("No transform from {} to {}", self.from, self.to);
+                self.event_notifier
+                    .notify_with_custom_event_id(PubSubEvent::Error.into())
+                    .unwrap();
+            },
         }
         Ok(())
     }
 }
 
+/// The Server maintains the buffer and the listeners for the transform requests and new transforms
+/// In order to request a transform, a client has to register itself at the server by sending a TransformRequest
+/// The server keeps track of the active publishers for each subscription and can thus directly replay the transform when requested
 pub struct Server {
     buffer: Arc<Mutex<BufferTree>>,
     node: Arc<Node<ipc::Service>>,
-    active_publishers: Arc<Mutex<HashMap<i32, TFPublisher>>>,
+    active_publishers: Arc<Mutex<HashMap<u128, TFPublisher>>>,
     pub request_listener: Subscriber<ipc::Service, TransformRequest, ()>,
     pub request_listener_notifier: Listener<ipc::Service>,
     pub transform_listener: Subscriber<ipc::Service, NewTransform, ()>,
@@ -116,12 +112,14 @@ pub struct Server {
     pub transform_listener_event_listener: Listener<ipc::Service>,
 }
 
+/// This is needed for the WaitSet to work
 impl FileDescriptorBased for Server {
     fn file_descriptor(&self) -> &FileDescriptor {
         self.request_listener_notifier.file_descriptor()
     }
 }
 
+/// This is needed for the WaitSet to work
 impl SynchronousMultiplexing for Server {}
 
 impl Server {
@@ -173,7 +171,7 @@ impl Server {
         while let Some(event) = self.request_listener_notifier.try_wait_one()? {
             let event: PubSubEvent = event.into();
             match event {
-                PubSubEvent::SentSample => while let Ok(()) = self.process_listener_request() {},
+                PubSubEvent::SentSample => self.process_listener_request()?,
                 PubSubEvent::PublisherConnected => println!("new publisher connected"),
                 PubSubEvent::PublisherDisconnected => println!("publisher disconnected"),
                 _ => (),
@@ -203,7 +201,7 @@ impl Server {
                 }
                 self.transform_listener_notifier
                     .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())?;
-                let res = active_publishers.get_mut(&tf_request.id).unwrap().publish();
+                let _res = active_publishers.get_mut(&tf_request.id).unwrap().publish();
                 Ok(())
             }
             None => Ok(()),
