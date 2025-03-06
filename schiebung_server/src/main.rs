@@ -10,13 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         waitset.attach_notification(&server.transform_listener_event_listener)?;
 
     let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-        println!("attachment_id: {:?}", attachment_id);
         if attachment_id.has_event_from(&request_listener_guard) {
             server.handle_listener_event().unwrap();
         } else if attachment_id.has_event_from(&transform_listener_guard) {
             server.handle_transform_listener_event().unwrap();
-        } else {
-            println!("x")
         }
         CallbackProgression::Continue
     };

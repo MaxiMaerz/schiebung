@@ -1,11 +1,10 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 
 use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
-use schiebung_types::TransformType;
+use schiebung_types::{StampedIsometry, TransformType};
 
 /// Enumerates the different types of errors
 #[derive(Clone, Debug)]
@@ -18,33 +17,6 @@ pub enum TfError {
     CouldNotFindTransform,
     /// In the event that a write is simultaneously happening with a read of the same tf buffer
     CouldNotAcquireLock,
-}
-
-#[derive(Clone, Debug)]
-pub struct StampedIsometry {
-    pub isometry: Isometry3<f64>,
-    /// The time at which this isometry was recorded in seconds
-    pub stamp: f64,
-}
-
-impl PartialEq for StampedIsometry {
-    fn eq(&self, other: &Self) -> bool {
-        self.stamp == other.stamp
-    }
-}
-
-impl Eq for StampedIsometry {}
-
-impl Ord for StampedIsometry {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.stamp.partial_cmp(&other.stamp).unwrap()
-    }
-}
-
-impl PartialOrd for StampedIsometry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 #[derive(Debug)]

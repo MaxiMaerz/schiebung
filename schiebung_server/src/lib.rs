@@ -1,4 +1,3 @@
-use core::time::Duration;
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
@@ -7,106 +6,20 @@ use iceoryx2::prelude::*;
 use log::{error, info};
 use nalgebra::{Isometry, Quaternion, Translation3, UnitQuaternion};
 use schiebung_core::BufferTree;
-use schiebung_core::StampedIsometry;
 use schiebung_types::{
-    NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType,
+    NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType, StampedIsometry
 };
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
-/// The TFPublisher maintains the publishers for each Subscription to the Server
-/// We want to keep track to replay faster when a transform is requested without recreating the required services
-/// Currently there is no way to unregister a publisher, so registering to many subscribers will lead to a resource exhaustion
-struct TFPublisher {
-    buffer: Arc<Mutex<BufferTree>>,
-    from: String,
-    to: String,
-    publisher: Publisher<ipc::Service, TransformResponse, ()>,
-    event_notifier: Notifier<ipc::Service>,
-}
-impl TFPublisher {
-    fn new(
-        buffer: Arc<Mutex<BufferTree>>,
-        sub_id: u128,
-        from: String,
-        to: String,
-        node: Arc<Node<ipc::Service>>,
-    ) -> TFPublisher {
-        let service_name: ServiceName =
-            ServiceName::new(&("tf_replay_".to_owned() + &sub_id.clone().to_string())).unwrap();
-        let publisher_service = node
-            .service_builder(&service_name)
-            .publish_subscribe::<TransformResponse>()
-            .open_or_create()
-            .unwrap();
-        let publisher = publisher_service.publisher_builder().create().unwrap();
-
-        let event_service = node
-            .service_builder(&service_name)
-            .event()
-            .open_or_create()
-            .unwrap();
-        let event_notifier = event_service.notifier_builder().create().unwrap();
-        TFPublisher {
-            buffer: buffer,
-            from: from,
-            to: to,
-            publisher: publisher,
-            event_notifier: event_notifier,
-        }
-    }
-    fn publish(&self) -> Result<(), PubSubEvent> {
-        let sample = self.publisher.loan_uninit().unwrap();
-        let target_isometry = self
-            .buffer
-            .lock()
-            .unwrap()
-            .lookup_latest_transform(self.from.clone(), self.to.clone());
-        match target_isometry {
-            Some(target_isometry) => {
-                println!("Publishing transform from {} to {}", self.from, self.to);
-                let sample = sample.write_payload(TransformResponse {
-                    time: target_isometry.stamp,
-                    translation: [
-                        target_isometry.isometry.translation.x,
-                        target_isometry.isometry.translation.y,
-                        target_isometry.isometry.translation.z,
-                    ],
-                    rotation: [
-                        target_isometry.isometry.rotation.i,
-                        target_isometry.isometry.rotation.j,
-                        target_isometry.isometry.rotation.k,
-                        target_isometry.isometry.rotation.w,
-                    ],
-                });
-                sample.send().unwrap();
-                self.event_notifier
-                    .notify_with_custom_event_id(PubSubEvent::SentSample.into())
-                    .unwrap();
-            },
-            None => {
-                error!("No transform from {} to {}", self.from, self.to);
-                self.event_notifier
-                    .notify_with_custom_event_id(PubSubEvent::Error.into())
-                    .unwrap();
-            },
-        }
-        Ok(())
-    }
-}
-
-/// The Server maintains the buffer and the listeners for the transform requests and new transforms
-/// In order to request a transform, a client has to register itself at the server by sending a TransformRequest
-/// The server keeps track of the active publishers for each subscription and can thus directly replay the transform when requested
 pub struct Server {
     buffer: Arc<Mutex<BufferTree>>,
-    node: Arc<Node<ipc::Service>>,
-    active_publishers: Arc<Mutex<HashMap<u128, TFPublisher>>>,
     pub request_listener: Subscriber<ipc::Service, TransformRequest, ()>,
     pub request_listener_notifier: Listener<ipc::Service>,
+    request_publisher: Publisher<ipc::Service, TransformResponse, ()>,
+    request_publisher_event_notifier: Notifier<ipc::Service>,
     pub transform_listener: Subscriber<ipc::Service, NewTransform, ()>,
     pub transform_listener_notifier: Notifier<ipc::Service>,
     pub transform_listener_event_listener: Listener<ipc::Service>,
@@ -139,6 +52,20 @@ impl Server {
             .event()
             .open_or_create()?;
         let request_listener_notifier = event_service.listener_builder().create()?;
+        // publish response
+        let response_name = "tf_response".try_into()?;
+        let publisher_service = node
+            .service_builder(&response_name)
+            .publish_subscribe::<TransformResponse>()
+            .open_or_create()
+            .unwrap();
+        let request_publisher = publisher_service.publisher_builder().create().unwrap();
+        let publisher_event_service = node
+            .service_builder(&response_name)
+            .event()
+            .open_or_create()
+            .unwrap();
+        let request_publisher_event_notifier = publisher_event_service.notifier_builder().create().unwrap();
 
         // Publisher
         let publisher_name = "new_tf".try_into()?;
@@ -157,10 +84,10 @@ impl Server {
 
         Ok(Self {
             buffer: buffer,
-            node: node,
             request_listener: subscriber,
             transform_listener: transform_listener,
-            active_publishers: Arc::new(Mutex::new(HashMap::new())),
+            request_publisher: request_publisher,
+            request_publisher_event_notifier: request_publisher_event_notifier,
             transform_listener_notifier: notifier,
             transform_listener_event_listener: transform_listener_notifier,
             request_listener_notifier: request_listener_notifier,
@@ -184,24 +111,45 @@ impl Server {
     fn process_listener_request(&self) -> Result<(), Box<dyn std::error::Error>> {
         match self.request_listener.receive()? {
             Some(sample) => {
-                let tf_request = sample.payload();
-                let mut active_publishers = self.active_publishers.lock().unwrap();
-                if !active_publishers.contains_key(&tf_request.id) {
-                    active_publishers.insert(
-                        tf_request.id,
-                        TFPublisher::new(
-                            self.buffer.clone(),
-                            tf_request.id,
-                            decode_char_array(&tf_request.from),
-                            decode_char_array(&tf_request.to),
-                            self.node.clone(),
-                        ),
-                    );
-                    info!("Added publisher for {}", tf_request.id);
-                }
+                let tf_request = sample.payload().clone();
                 self.transform_listener_notifier
                     .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())?;
-                let _res = active_publishers.get_mut(&tf_request.id).unwrap().publish();
+                let target_isometry = self
+                    .buffer
+                    .lock()
+                    .unwrap()
+                    .lookup_latest_transform(decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
+                match target_isometry {
+                    Some(target_isometry) => {
+                        let sample = self.request_publisher.loan_uninit().unwrap();
+                        let sample = sample.write_payload(TransformResponse {
+                            id: tf_request.id,
+                            time: target_isometry.stamp,
+                            translation: [
+                                target_isometry.isometry.translation.x,
+                                target_isometry.isometry.translation.y,
+                                target_isometry.isometry.translation.z,
+                            ],
+                            rotation: [
+                                target_isometry.isometry.rotation.i,
+                                target_isometry.isometry.rotation.j,
+                                target_isometry.isometry.rotation.k,
+                                target_isometry.isometry.rotation.w,
+                            ],
+                        });
+                        sample.send().unwrap();
+                        self.request_publisher_event_notifier
+                            .notify_with_custom_event_id(PubSubEvent::SentSample.into())
+                            .unwrap();
+                        error!("Published transform from: {} to {}:", decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
+                    },
+                    None => {
+                        error!("No transform from {} to {}", decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
+                        self.request_publisher_event_notifier
+                            .notify_with_custom_event_id(PubSubEvent::Error.into())
+                            .unwrap();
+                    },
+                }
                 Ok(())
             }
             None => Ok(()),

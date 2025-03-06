@@ -1,22 +1,26 @@
 use schiebung_client::ListenerClient;
-use std::time::Instant;
+use schiebung_types::{StampedIsometry, StampedTransform};
+use log::{error, info};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let sub_client = ListenerClient::new()?;
 
-    for _ in 0..20 {
-        let start = Instant::now();
-        let response = sub_client.request_transform(
-            &"base_link_inertia".to_string(),
-            &"wrist_3_link".to_string(),
-            0.0,
-        );
-        let duration = start.elapsed();
-        if let Ok(response) = response {
-            println!("Response: {:?}", response);
-            println!("Time taken: {:?}", duration);
-        }
+    let response = sub_client.request_transform(
+        &"base_link_inertia".to_string(),
+        &"wrist_3_link".to_string(),
+        0.0,
+    );
+    match response {
+        Ok(response) => {
+            let res = response.clone();
+            info!("Raw response: {:?}", res);
+            let stamped_tf: StampedTransform = res.clone().into();
+            let stamped_iso: StampedIsometry = res.clone().into();
+            info!("Isometry: {:?}", stamped_iso);
+            info!("TF: {:?}", stamped_tf);
+        },
+        _ => error!("Lookup error!"),
     }
     Ok(())
 }

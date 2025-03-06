@@ -25,6 +25,7 @@ pub struct ListenerClient {
     tf_requester: Publisher<ipc::Service, TransformRequest, ()>,
     tf_requester_notifier: Notifier<ipc::Service>,
     tf_listener_event_listener: Listener<ipc::Service>,
+    id: u128
 }
 
 impl ListenerClient {
@@ -43,25 +44,26 @@ impl ListenerClient {
             .open_or_create()?;
         let publish_service_notifier = publish_service_notifier.notifier_builder().create()?;
 
-        let sub_id = publisher.id().value().to_string();
-        let service_name: ServiceName =
-            ServiceName::new(&("tf_replay_".to_owned() + &sub_id.clone().to_string())).unwrap();
+        let sub_id = &"tf_response".try_into()?;
         let subscribe_service = node
-            .service_builder(&service_name)
+            .service_builder(sub_id)
             .publish_subscribe::<TransformResponse>()
             .open_or_create()?;
         let listener = subscribe_service.subscriber_builder().create()?;
         let notifier_service = node
-            .service_builder(&service_name)
+            .service_builder(sub_id)
             .event()
             .open_or_create()?;
         let tf_listener_event_listener = notifier_service.listener_builder().create()?;
+
+        let id = listener.id().value();
 
         Ok(Self {
             tf_listener: listener,
             tf_requester: publisher,
             tf_requester_notifier: publish_service_notifier,
             tf_listener_event_listener: tf_listener_event_listener,
+            id: id.clone(),
         })
     }
 
@@ -89,13 +91,13 @@ impl ListenerClient {
             let event: PubSubEvent = event.into();
             match event {
                 PubSubEvent::SentSample => {
-                    return Ok(self
-                        .tf_listener
-                        .receive()
-                        .unwrap()
-                        .unwrap()
-                        .payload()
-                        .clone())
+                    let sample = self.tf_listener.receive().unwrap().unwrap();
+                    if sample.id == self.id {
+                        let result = Ok(sample.clone());
+                        let _res = self.tf_requester_notifier.notify_with_custom_event_id(PubSubEvent::ReceivedSample.into());
+                        return result
+                    }
+                    continue;
                 }
                 PubSubEvent::Error => {
                     return Err(event);
