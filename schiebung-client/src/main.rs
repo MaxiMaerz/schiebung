@@ -1,6 +1,6 @@
+use log::{error, info};
 use schiebung_client::ListenerClient;
 use schiebung_types::{StampedIsometry, StampedTransform};
-use log::{error, info};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stamped_iso: StampedIsometry = res.clone().into();
             info!("Isometry: {:?}", stamped_iso);
             info!("TF: {:?}", stamped_tf);
-        },
+        }
         _ => error!("Lookup error!"),
     }
     Ok(())

@@ -7,7 +7,7 @@ use log::{error, info};
 use nalgebra::{Isometry, Quaternion, Translation3, UnitQuaternion};
 use schiebung_core::BufferTree;
 use schiebung_types::{
-    NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType, StampedIsometry
+    NewTransform, PubSubEvent, StampedIsometry, TransformRequest, TransformResponse, TransformType,
 };
 use std::sync::{Arc, Mutex};
 
@@ -65,7 +65,8 @@ impl Server {
             .event()
             .open_or_create()
             .unwrap();
-        let request_publisher_event_notifier = publisher_event_service.notifier_builder().create().unwrap();
+        let request_publisher_event_notifier =
+            publisher_event_service.notifier_builder().create().unwrap();
 
         // Publisher
         let publisher_name = "new_tf".try_into()?;
@@ -114,11 +115,10 @@ impl Server {
                 let tf_request = sample.payload().clone();
                 self.transform_listener_notifier
                     .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())?;
-                let target_isometry = self
-                    .buffer
-                    .lock()
-                    .unwrap()
-                    .lookup_latest_transform(decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
+                let target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
+                    decode_char_array(&tf_request.from),
+                    decode_char_array(&tf_request.to),
+                );
                 match target_isometry {
                     Some(target_isometry) => {
                         let sample = self.request_publisher.loan_uninit().unwrap();
@@ -141,14 +141,22 @@ impl Server {
                         self.request_publisher_event_notifier
                             .notify_with_custom_event_id(PubSubEvent::SentSample.into())
                             .unwrap();
-                        error!("Published transform from: {} to {}:", decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
-                    },
+                        error!(
+                            "Published transform from: {} to {}:",
+                            decode_char_array(&tf_request.from),
+                            decode_char_array(&tf_request.to)
+                        );
+                    }
                     None => {
-                        error!("No transform from {} to {}", decode_char_array(&tf_request.from), decode_char_array(&tf_request.to));
+                        error!(
+                            "No transform from {} to {}",
+                            decode_char_array(&tf_request.from),
+                            decode_char_array(&tf_request.to)
+                        );
                         self.request_publisher_event_notifier
                             .notify_with_custom_event_id(PubSubEvent::Error.into())
                             .unwrap();
-                    },
+                    }
                 }
                 Ok(())
             }
