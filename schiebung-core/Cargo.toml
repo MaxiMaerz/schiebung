@@ -10,3 +10,4 @@ petgraph = "*"
 schiebung-types = {path = "../schiebung-types"}
 log = "*"
 approx = "*"
+dirs = "*"

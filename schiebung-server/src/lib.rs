@@ -109,8 +109,6 @@ impl Server {
             let event: PubSubEvent = event.into();
             match event {
                 PubSubEvent::SentSample => self.process_listener_request()?,
-                PubSubEvent::PublisherConnected => println!("new publisher connected"),
-                PubSubEvent::PublisherDisconnected => println!("publisher disconnected"),
                 _ => (),
             }
         }
@@ -124,12 +122,13 @@ impl Server {
                 let tf_request = sample.payload().clone();
                 self.transform_listener_notifier
                     .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())?;
-                let target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
+                let target_isometry = self.buffer.lock().unwrap().lookup_transform(
                     decode_char_array(&tf_request.from),
                     decode_char_array(&tf_request.to),
+                    tf_request.time,
                 );
                 match target_isometry {
-                    Some(target_isometry) => {
+                    Ok(target_isometry) => {
                         let sample = self.request_publisher.loan_uninit().unwrap();
                         let sample = sample.write_payload(TransformResponse {
                             id: tf_request.id,
@@ -150,13 +149,13 @@ impl Server {
                         self.request_publisher_event_notifier
                             .notify_with_custom_event_id(PubSubEvent::SentSample.into())
                             .unwrap();
-                        error!(
+                        info!(
                             "Published transform from: {} to {}:",
                             decode_char_array(&tf_request.from),
                             decode_char_array(&tf_request.to)
                         );
                     }
-                    None => {
+                    _ => {
                         error!(
                             "No transform from {} to {}",
                             decode_char_array(&tf_request.from),
@@ -178,9 +177,9 @@ impl Server {
             let event: PubSubEvent = event.into();
             match event {
                 PubSubEvent::SentSample => {
+                    self.process_new_transform()?;
                     self.transform_listener_notifier
                         .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into())?;
-                    self.process_new_transform()?;
                 }
                 _ => (),
             }
@@ -222,11 +221,12 @@ impl Server {
         Ok(())
     }
 
-    fn handle_visualizer_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn handle_visualizer_event(&self) -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = self.visualizer_listener.try_wait_one()? {
             let event: PubSubEvent = event.into();
             match event {
-                PubSubEvent::SentSample => self.process_visualizer_request()?,
+                PubSubEvent::SentSample => self.buffer.lock().unwrap().save_visualization()?,
+                _ => (),
             }
         }
         Ok(())
