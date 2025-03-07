@@ -10,3 +10,7 @@ schiebung-types = {path = "../schiebung-types"}
 nalgebra = "*"
 log = "*"
 env_logger = "*"
+
+[dev-dependencies]
+schiebung-server = {path = "../schiebung-server"}
+iceoryx2-bb-posix = "*"

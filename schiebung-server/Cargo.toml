@@ -1,13 +1,12 @@
 [package]
-name = "schiebung-core"
+name = "schiebung-server"
 version = "0.1.0"
 edition = "2021"
 
-
 [dependencies]
-nalgebra = "*"
-petgraph = "*"
+iceoryx2 = "*"
 schiebung-types = {path = "../schiebung-types"}
+schiebung-core = {path = "../schiebung-core"}
 log = "*"
-approx = "*"
-dirs = "*"
+env_logger = "*"
+nalgebra = "*"
