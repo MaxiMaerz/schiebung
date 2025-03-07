@@ -108,6 +108,12 @@ impl ListenerClient {
     }
 }
 
+impl Drop for ListenerClient {
+    fn drop(&mut self) {
+        self.tf_requester_notifier.notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into()).unwrap();
+    }
+}
+
 pub struct PublisherClient {
     tf_publisher: Publisher<ipc::Service, NewTransform, ()>,
     tf_publisher_notifier: Notifier<ipc::Service>,

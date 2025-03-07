@@ -1,4 +1,7 @@
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::Write;
+use std::process::Command;
 
 use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
@@ -87,6 +90,8 @@ struct NodeIndex {
     node_ids: HashMap<String, usize>,
 }
 
+// DiGraphMap does not support strings and requires an external storage
+// https://github.com/petgraph/petgraph/issues/325
 impl NodeIndex {
     pub fn new() -> Self {
         NodeIndex {
@@ -275,8 +280,70 @@ impl BufferTree {
         })
     }
 
-    pub fn visualize(&self) -> Dot<&DiGraphMap<usize, TransformHistory>> {
-        Dot::with_config(&self.graph, &[Config::GraphContentOnly])
+    /// Visualize the buffer tree as a DOT graph
+    /// Can not use internal visualizer because we Store the nodes in self.index
+    pub fn visualize(&self) -> String {
+        // Create a mapping from index back to node name
+        let reverse_index: HashMap<usize, &String> = self
+            .index
+            .node_ids
+            .iter()
+            .map(|(name, &id)| (id, name))
+            .collect();
+
+        // Convert the graph to DOT format manually
+        let mut dot = String::from("digraph {\n");
+        
+        // Add nodes
+        for node in self.graph.nodes() {
+            let name = reverse_index.get(&node).unwrap();
+            dot.push_str(&format!("    {} [label=\"{}\"]\n", node, name));
+        }
+        
+        // Add edges with transform information
+        for edge in self.graph.all_edges() {
+            if let Some(latest) = edge.2.history.back() {
+                let translation = latest.isometry.translation.vector;
+                let rotation = latest.isometry.rotation.euler_angles();
+                dot.push_str(&format!(
+                    "    {} -> {} [label=\"t=[{:.3}, {:.3}, {:.3}]\\nr=[{:.3}, {:.3}, {:.3}]\\ntime={:.3}\"]\n",
+                    edge.0, edge.1,
+                    translation[0], translation[1], translation[2],
+                    rotation.0, rotation.1, rotation.2,
+                    latest.stamp
+                ));
+            } else {
+                dot.push_str(&format!("    {} -> {} [label=\"No transforms\"]\n", edge.0, edge.1));
+            }
+        }
+        
+        dot.push_str("}");
+        dot
+    }
+
+    /// Save the buffer tree as a PDF and dot file
+    /// Runs graphiz to generate the PDF, fails if graphiz is not installed
+    pub fn save_visualization(&self, filename: &str) -> std::io::Result<()> {
+        // Save DOT file
+        let dot_content = self.visualize();
+        let dot_filename = format!("{}.dot", filename);
+        let mut file = File::create(&dot_filename)?;
+        file.write_all(dot_content.as_bytes())?;
+
+        // Generate PDF using dot command
+        let pdf_filename = format!("{}.pdf", filename);
+        let output = Command::new("dot")
+            .args(["-Tpdf", &dot_filename, "-o", &pdf_filename])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!(
+                "Warning: Failed to generate PDF. Is Graphviz installed? Error: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -676,6 +743,7 @@ mod tests {
             );
         }
 
+        println!("{}", buffer_tree.visualize());
         let transform = buffer_tree
             .lookup_latest_transform("wrist_3_link".to_string(), "base_link_inertia".to_string());
         assert!(transform.is_some());

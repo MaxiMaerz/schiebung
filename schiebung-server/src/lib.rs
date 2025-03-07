@@ -23,6 +23,7 @@ pub struct Server {
     pub transform_listener: Subscriber<ipc::Service, NewTransform, ()>,
     pub transform_listener_notifier: Notifier<ipc::Service>,
     pub transform_listener_event_listener: Listener<ipc::Service>,
+    pub visualizer_listener: Listener<ipc::Service>,
 }
 
 /// This is needed for the WaitSet to work
@@ -83,6 +84,13 @@ impl Server {
         let notifier = event_notifier.notifier_builder().create()?;
         let transform_listener_notifier = event_notifier.listener_builder().create()?;
 
+        // Visualizer
+        let visualizer_event_service = node
+            .service_builder(&"visualizer".try_into()?)
+            .event()
+            .open_or_create()?;
+        let visualizer_listener = visualizer_event_service.listener_builder().create()?;
+
         Ok(Self {
             buffer: buffer,
             request_listener: subscriber,
@@ -92,6 +100,7 @@ impl Server {
             transform_listener_notifier: notifier,
             transform_listener_event_listener: transform_listener_notifier,
             request_listener_notifier: request_listener_notifier,
+            visualizer_listener: visualizer_listener,
         })
     }
 
@@ -209,6 +218,16 @@ impl Server {
                 iso,
                 TransformType::try_from(new_tf.kind).unwrap(),
             );
+        }
+        Ok(())
+    }
+
+    fn handle_visualizer_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+        while let Some(event) = self.visualizer_listener.try_wait_one()? {
+            let event: PubSubEvent = event.into();
+            match event {
+                PubSubEvent::SentSample => self.process_visualizer_request()?,
+            }
         }
         Ok(())
     }
