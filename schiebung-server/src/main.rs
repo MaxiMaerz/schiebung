@@ -1,7 +1,7 @@
 use iceoryx2::prelude::*;
 use schiebung_server::Server;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    env_logger::Builder::new().filter(None, log::LevelFilter::Info).init();
     let server = Server::new()?;
 
     let waitset = WaitSetBuilder::new().create::<ipc::Service>()?;

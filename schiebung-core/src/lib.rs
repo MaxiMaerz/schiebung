@@ -4,6 +4,7 @@ use std::io::Write;
 use std::process::Command;
 use dirs::home_dir;
 
+use log::info;
 use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
 use petgraph::graphmap::DiGraphMap;
@@ -364,14 +365,15 @@ impl BufferTree {
     /// Runs graphiz to generate the PDF, fails if graphiz is not installed
     pub fn save_visualization(&self) -> std::io::Result<()> {
         let filename = &self.config.save_path;
+        info!("Saving visualization to {}/graph.(dot/pdf)", filename);
         // Save DOT file
         let dot_content = self.visualize();
-        let dot_filename = format!("{}.dot", filename);
+        let dot_filename = format!("{}/graph.dot", filename);
         let mut file = File::create(&dot_filename)?;
         file.write_all(dot_content.as_bytes())?;
 
         // Generate PDF using dot command
-        let pdf_filename = format!("{}.pdf", filename);
+        let pdf_filename = format!("{}/graph.pdf", filename);
         let output = Command::new("dot")
             .args(["-Tpdf", &dot_filename, "-o", &pdf_filename])
             .output()?;

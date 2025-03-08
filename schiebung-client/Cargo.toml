@@ -10,6 +10,7 @@ schiebung-types = {path = "../schiebung-types"}
 nalgebra = "*"
 log = "*"
 env_logger = "*"
+clap = { version = "4.0", features = ["derive"] }
 
 [dev-dependencies]
 schiebung-server = {path = "../schiebung-server"}
