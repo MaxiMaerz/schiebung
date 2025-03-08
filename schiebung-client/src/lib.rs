@@ -7,7 +7,7 @@ use nalgebra::{Translation3, UnitQuaternion};
 use schiebung_types::{
     NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType,
 };
-
+use log::{info, error};
 fn encode_char_array(input: &String) -> [char; 100] {
     let mut char_array: [char; 100] = ['\0'; 100];
     for (i, c) in input.chars().enumerate() {
@@ -76,7 +76,7 @@ impl ListenerClient {
             from: encode_char_array(from),
             to: encode_char_array(to),
             time: time,
-            id: self.tf_requester.id().value(),
+            id: self.id,
         });
         sample.send().unwrap();
         self.tf_requester_notifier
@@ -88,14 +88,19 @@ impl ListenerClient {
             let event: PubSubEvent = event.into();
             match event {
                 PubSubEvent::SentSample => {
+                    info!("Server sent payload");
                     let sample = self.tf_listener.receive().unwrap().unwrap();
+                    info!("Received sample payload id: {}, self id: {}", sample.id, self.id);
                     if sample.id == self.id {
+                        info!("Server sent payload with correct id");
                         let result = Ok(sample.clone());
                         let _res = self
                             .tf_requester_notifier
                             .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into());
+                        info!("Returning result");
                         return result;
                     }
+
                     continue;
                 }
                 PubSubEvent::Error => {
@@ -121,10 +126,10 @@ pub struct PublisherClient {
 }
 
 impl PublisherClient {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>>{
         let node = NodeBuilder::new().create::<ipc::Service>()?;
         let publish_service = node
-            .service_builder(&"new_tf".try_into().unwrap())
+            .service_builder(&"new_tf".try_into()?)
             .publish_subscribe::<NewTransform>()
             .open_or_create()?;
         let publisher = publish_service.publisher_builder().create()?;
@@ -136,7 +141,7 @@ impl PublisherClient {
         let publish_service_notifier = event_service.notifier_builder().create()?;
         let event_listener = event_service.listener_builder().create()?;
 
-        Ok(PublisherClient {
+        Ok(Self {
             tf_publisher: publisher,
             receiver_event: event_listener,
             tf_publisher_notifier: publish_service_notifier,
@@ -151,7 +156,7 @@ impl PublisherClient {
         rotation: UnitQuaternion<f64>,
         stamp: f64,
         kind: TransformType,
-    ) -> Result<(), Box<dyn std::error::Error>>{
+    ) {
         let new_tf = NewTransform {
             from: encode_char_array(from),
             to: encode_char_array(to),
@@ -160,19 +165,19 @@ impl PublisherClient {
             rotation: [rotation.i, rotation.j, rotation.k, rotation.w],
             kind: kind as u8,
         };
-        let sample = self.tf_publisher.loan_uninit()?;
+        let sample = self.tf_publisher.loan_uninit().unwrap();
         let sample = sample.write_payload(new_tf);
         self.tf_publisher_notifier
-            .notify_with_custom_event_id(PubSubEvent::SentSample.into())?;
+            .notify_with_custom_event_id(PubSubEvent::SentSample.into())
+            .unwrap();
         sample.send().unwrap();
-        while let Some(event) = self.receiver_event.blocking_wait_one()? {
+        while let Some(event) = self.receiver_event.blocking_wait_one().unwrap() {
             let event: PubSubEvent = event.into();
             match event {
-                PubSubEvent::ReceivedSample => return Ok(()),
+                PubSubEvent::ReceivedSample => return,
                 _ => (),
             }
         }
-        Ok(())
     }
 }
 
@@ -183,3 +188,37 @@ impl Drop for PublisherClient {
             .unwrap();
     }
 }
+
+pub struct VisualizerClient {
+    visualizer_event: Notifier<ipc::Service>,
+}
+
+impl VisualizerClient {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let node = NodeBuilder::new().create::<ipc::Service>()?;
+        
+        let event_service = node
+            .service_builder(&"visualizer".try_into()?)
+            .event()
+            .open_or_create()?;
+        let visualizer_event = event_service.notifier_builder().create()?;
+        
+        Ok(Self {
+            visualizer_event: visualizer_event,
+        })
+    }
+    pub fn send_visualization_request(&self) {
+        self.visualizer_event
+            .notify_with_custom_event_id(PubSubEvent::SentSample.into())
+            .unwrap();
+    }
+}
+
+impl Drop for VisualizerClient {
+    fn drop(&mut self) {
+        self.visualizer_event
+            .notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into())
+            .unwrap();
+    }
+}
+

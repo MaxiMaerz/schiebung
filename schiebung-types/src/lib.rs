@@ -50,6 +50,7 @@ pub struct NewTransform {
     pub kind: u8,
 }
 
+#[derive(Debug)]
 pub enum PubSubEvent {
     PublisherConnected = 0,
     PublisherDisconnected = 1,
