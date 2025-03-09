@@ -1,4 +1,4 @@
-use iceoryx2::port::listener::Listener;
+use iceoryx2::port::listener::{self, Listener};
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
@@ -7,7 +7,7 @@ use nalgebra::{Translation3, UnitQuaternion};
 use schiebung_types::{
     NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType,
 };
-use log::{info, error};
+use log::info;
 fn encode_char_array(input: &String) -> [char; 100] {
     let mut char_array: [char; 100] = ['\0'; 100];
     for (i, c) in input.chars().enumerate() {
@@ -36,24 +36,34 @@ impl ListenerClient {
         let publish_service = node
             .service_builder(listener_name)
             .publish_subscribe::<TransformRequest>()
+            .max_publishers(10)
+            .max_subscribers(10)
             .open_or_create()?;
-        let publisher = publish_service.publisher_builder().create()?;
+        let publisher = publish_service
+            .publisher_builder()
+            .unable_to_deliver_strategy(UnableToDeliverStrategy::DiscardSample)
+            .create()?;
         let publish_service_notifier = node
             .service_builder(listener_name)
             .event()
+            .max_listeners(10)
             .open_or_create()?;
         let publish_service_notifier = publish_service_notifier.notifier_builder().create()?;
+        let id = publisher.id().value();
 
-        let sub_id = &"tf_response".try_into()?;
+        let service_name = ServiceName::new(&("tf_replay_".to_string() + &id.to_string()))?;
         let subscribe_service = node
-            .service_builder(sub_id)
+            .service_builder(&service_name)
             .publish_subscribe::<TransformResponse>()
+            .max_publishers(10)
+            .max_subscribers(10)
             .open_or_create()?;
         let listener = subscribe_service.subscriber_builder().create()?;
-        let notifier_service = node.service_builder(sub_id).event().open_or_create()?;
-        let tf_listener_event_listener = notifier_service.listener_builder().create()?;
+        let notifier_service = node.service_builder(&service_name).event().open_or_create()?;
+        let tf_listener_event_listener = notifier_service
+            .listener_builder()
+            .create()?;
 
-        let id = listener.id().value();
 
         Ok(Self {
             tf_listener: listener,
@@ -100,7 +110,6 @@ impl ListenerClient {
                         info!("Returning result");
                         return result;
                     }
-
                     continue;
                 }
                 PubSubEvent::Error => {

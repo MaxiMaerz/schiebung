@@ -1,6 +1,7 @@
 use iceoryx2::port::event_id::EventId;
 use nalgebra::{Isometry, Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
 use std::cmp::Ordering;
+use std::fmt;
 
 #[derive(Clone, Debug)]
 pub enum TransformType {
@@ -115,6 +116,12 @@ impl Into<StampedTransform> for TransformResponse {
         }
     }
 }
+impl fmt::Display for StampedTransform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StampedTransform(stamp: {}, translation: {}, rotation: {})", self.stamp, self.translation, self.rotation)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StampedIsometry {
     pub isometry: Isometry3<f64>,
