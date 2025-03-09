@@ -576,7 +576,7 @@ mod tests {
                 buffer_tree.index.index("E".to_string()),
             ])
         );
-        let edge = buffer_tree.graph.edge_weight(
+        let _edge = buffer_tree.graph.edge_weight(
             buffer_tree.index.index("A".to_string()),
             buffer_tree.index.index("B".to_string()),
         );

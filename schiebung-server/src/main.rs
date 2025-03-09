@@ -1,5 +1,6 @@
 use iceoryx2::prelude::*;
 use schiebung_server::Server;
+use log::info;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::new().filter(None, log::LevelFilter::Info).init();
     let server = Server::new()?;
@@ -22,5 +23,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CallbackProgression::Continue
     };
     waitset.wait_and_process(fn_call)?;
+    info!("Server shutting down");
     Ok(())
 }
