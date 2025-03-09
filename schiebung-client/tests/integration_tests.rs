@@ -1,7 +1,7 @@
 use iceoryx2::prelude::*;
 use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 use schiebung_server::Server;
-use log::{info, error};
+use log::info;
 use schiebung_client::{ListenerClient, PublisherClient};
 use schiebung_types::TransformType;
 use std::{thread, time::Duration};
