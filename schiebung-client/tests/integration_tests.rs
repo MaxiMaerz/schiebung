@@ -11,6 +11,8 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 
 
 #[test]
+/// This test checks if a single client can receive a transform
+/// Also checks if errors are handled correctly
 pub fn test_basic_interaction() {
     common::setup_logger();
     let server_handle = thread::spawn(|| {
@@ -86,6 +88,10 @@ pub fn test_basic_interaction() {
 }
 
 #[test]
+/// This test checks if multiple clients can receive their requested transforms
+/// We create 3 clients:
+/// One is just getting one TF and will idle afterwards
+/// The other two are sending multiple requests after waiting at a barrier and checking if they receive the correct TF
 fn test_multi_client_interaction() {
     common::setup_logger();
     let barrier = Arc::new(Barrier::new(3)); // Create barrier for 3 threads (main + 2 clients)
@@ -166,16 +172,13 @@ fn test_multi_client_interaction() {
         }
         _ => assert!(false)
     }
-    drop(sync_sub_client);
     info!("Server and clients ready");
 
     // Test if multiple clients can receive their requested transforms
     let client_1_handle = thread::spawn(move || {
         let sub_client = ListenerClient::new().unwrap();
-        info!("Client 1 waiting");
         barrier_clone1.wait(); // Wait for all threads to be ready
-        error!("Client 1 starting");
-        for _ in 0..2 {
+        for _ in 0..100 {
             let response = sub_client.request_transform(
                 &"root".to_string(),
                 &"child_1".to_string(),
@@ -189,22 +192,19 @@ fn test_multi_client_interaction() {
                 _ => assert!(false)
             }
         }
-        error!("Client 1 finished");
+        info!("Client 1 finished");
     });
 
     info!("Start Client 2");
     let client_2_handle = thread::spawn(move || {
         let sub_client = ListenerClient::new().unwrap();
-        info!("Client 2 waiting");
         barrier_clone2.wait(); // Wait for all threads to be ready
-        error!("Client 2 starting");
-        for _ in 0..2 {
+        for _ in 0..100 {
             let response = sub_client.request_transform(
                 &"root".to_string(),
                 &"child_2".to_string(),
                 1.0,
             );
-            info!("Response: {:?}", response);
             match response {
                 Ok(response) => {
                     assert_eq!(response.translation, [1.0, 2.0, 1.0]);
@@ -213,12 +213,10 @@ fn test_multi_client_interaction() {
                 _ => assert!(false)
             }
         }
-        error!("Client 2 finished");
+        info!("Client 2 finished");
     });
 
-    info!("Triggering barrier so everything starts at the same time");
     barrier.wait(); // Main thread waits for clients to be ready
-    error!("PASSED");
     server_handle.join().unwrap();
     client_1_handle.join().unwrap();
     client_2_handle.join().unwrap();

@@ -3,7 +3,7 @@ use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
-use log::{error, info};
+use log::{debug, error, info};
 use nalgebra::{Isometry, Quaternion, Translation3, UnitQuaternion};
 use schiebung_core::BufferTree;
 use schiebung_types::{
@@ -29,11 +29,11 @@ impl TFPublisher {
         let publisher_service = node
             .service_builder(&service_name)
             .publish_subscribe::<TransformResponse>()
-            .create()?;
+            .open_or_create()?;
         let notifier_service = node
             .service_builder(&service_name)
             .event()
-            .create()?;
+            .open_or_create()?;
         let publisher = publisher_service.publisher_builder().create()?;
         let notifier = notifier_service.notifier_builder().create()?;
         Ok(Self {
@@ -101,7 +101,7 @@ pub struct Server {
     pub transform_listener_notifier: Notifier<ipc::Service>,
     pub visualizer_listener: Listener<ipc::Service>,
     buffer: Arc<Mutex<BufferTree>>,
-    active_publishers: HashMap<u128, TFPublisher>,
+    active_publishers: Arc<Mutex<HashMap<u128, TFPublisher>>>,
 }
 
 /// This is needed for the WaitSet to work
@@ -164,11 +164,11 @@ impl Server {
             transform_listener_event_listener: transform_listener_notifier,
             transform_listener_notifier: notifier,
             visualizer_listener: visualizer_listener,
-            active_publishers: HashMap::new(),
+            active_publishers: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
-    pub fn handle_listener_event(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn handle_listener_event(&self) -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = self.request_listener_notifier.try_wait_one()? {
             let event: PubSubEvent = event.into();
             match event {
@@ -180,15 +180,17 @@ impl Server {
         Ok(())
     }
 
-    fn process_listener_request(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn process_listener_request(&self) -> Result<(), Box<dyn std::error::Error>> {
         match self.request_listener.receive()? {
             Some(sample) => {
+                debug!("Received listener request: {:?}", sample);
                 let tf_request = sample.payload().clone();
-                if !self.active_publishers.contains_key(&tf_request.id) {
+                let mut active_publishers = self.active_publishers.lock().unwrap();
+                if !active_publishers.contains_key(&tf_request.id) {
                     let publisher = TFPublisher::new(self.buffer.clone(), tf_request.id)?;
-                    self.active_publishers.insert(tf_request.id, publisher);
+                    active_publishers.insert(tf_request.id, publisher);
                 }
-                self.active_publishers.get(&tf_request.id).unwrap().publish(&tf_request)?;
+                active_publishers.get(&tf_request.id).unwrap().publish(&tf_request)?;
             }
             None => (),
         }
