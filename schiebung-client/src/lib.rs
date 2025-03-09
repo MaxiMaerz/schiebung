@@ -1,4 +1,4 @@
-use iceoryx2::port::listener::{self, Listener};
+use iceoryx2::port::listener::{Listener};
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;

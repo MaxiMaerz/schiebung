@@ -19,7 +19,6 @@ struct TFPublisher {
     buffer: Arc<Mutex<BufferTree>>,
     publisher: Publisher<ipc::Service, TransformResponse, ()>,
     notifier: Notifier<ipc::Service>,
-    id: u128,
 }
 
 impl TFPublisher {
@@ -40,7 +39,6 @@ impl TFPublisher {
             buffer: buffer,
             publisher: publisher,
             notifier: notifier,
-            id: id,
         })
     }
 
