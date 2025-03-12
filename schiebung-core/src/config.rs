@@ -1,6 +1,5 @@
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -19,15 +18,12 @@ impl Default for BufferConfig {
 }
 
 pub fn get_config() -> Result<BufferConfig, confy::ConfyError> {
-    let config_path = confy::get_configuration_file_path("schiebung", "schiebung-core")?;
-
-    let mut cfg = BufferConfig::default();
-    if config_path.exists() {
-        println!("Loading config from: {:?}", config_path);
-        cfg = confy::load_path(config_path)?;
-    } else {
-        // no config found, generate default
-        println!("No config found, using default");
-    };
-    Ok(cfg)
+    let config = confy::load("schiebung", "schiebung-core.yaml");
+    match config {
+        Ok(config) => Ok(config),
+        Err(e) => {
+            println!("Error loading config: {:?}", e);
+            Err(e)
+        }
+    }
 }
