@@ -1,13 +1,44 @@
 # Schiebung
 
-Schiebung reimplements the tf2 library without the need for ROS. However the Buffer can be filled with data from ROS.
+Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames. 
+We assume that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated.
 
-The ROS implementation can be found here: [tf2](https://github.com/ros2/geometry2/tree/master/tf2/src/buffer)
-
+The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
 It also draws inspiration form the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
-Currently we use [iceoryx2](https://github.com/eclipse-iceoryx/iceoryx2) for inter-process communication.
+The motivation for this package is a missing implementation for Rust in Ros2. We want to offer:
+
+* ROS agnostic library. The core functionality should be usable without any ROS dependencies or knowledge.
+* A client server architecture which works without ROS. We want to focus on low latency without remote access.
+* Integration into the ROS ecosystem without sacrificing the point above.
+
+Therefore the following creates will be available:
+
+* schiebung-core: The library which offers the data-structure and functions to store and lookup transforms.
+* schiebung-client/server: A standalone server which can be accessed by multiple clients which can store and lookup transformations. They interface via iceoryx2 IPC.
+* schiebung_ros2: This crate will offer a ROS interface to fill the Buffer on a schiebung-server with data while still allowing a client to connect to it without ROS. It also offers a library which fills a buffer locally without any server/client access (The traditional ROS implementation).
+
+For small applications a few local instances of the Buffer are of no concern, however for larger projects it can make sense to limit the amount of subscribers to tf and keep a global buffer.
+
+Currently we use [iceoryx2](https://github.com/eclipse-iceoryx/iceoryx2) for inter-process communication.\
 They claim extremely low latencies. However this has to be evaluated and tested.
+
+However in an integrated system you might already have a ROS-tf2 context and want to use that.\
+In this case you can use [schiebung_ros2](https://github.com/MaxiMaerz/schiebung_ros2) to update the buffer with ROS-tf2 data.
+
+This library is still under development and the API is not considered stable yet.
+
+## Status
+
+| Crate          | Usable | Published |
+|------------------|---------|-----------|
+| schiebung-core     | Yes     | No        |
+| schiebung-ros2      | Yes     | No        |
+| schiebung-client    | Yes      | No        |
+| schiebung-server    | Yes      | No        |
+
+The core implementation of the Buffer is tested, we are still missing a representative test for the interpolation / time travel feature.
+It yields the same result as the ROS-implementation.
 
 ## Installation
 
@@ -79,7 +110,4 @@ The default save path is your home directory and may be changed within the serve
 ```bash
 cargo run --bin schiebung-client visualize
 ```
-
-However in an integrated system you might already have a ROS-tf2 context and want to use that.
-In this case you can use [schiebung_ros2](https://github.com/MaxiMaerz/schiebung_ros2) to update the buffer with ROS-tf2 data.
 
