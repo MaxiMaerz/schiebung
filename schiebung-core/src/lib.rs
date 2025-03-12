@@ -2,13 +2,17 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
-use dirs::home_dir;
 
 use log::info;
 use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
 use petgraph::graphmap::DiGraphMap;
-use schiebung_types::{StampedIsometry, TransformType};
+
+pub mod types;
+use crate::types::{StampedIsometry, TransformType};
+
+mod config;
+use crate::config::{get_config, BufferConfig};
 
 /// Enumerates the different types of errors
 #[derive(Clone, Debug)]
@@ -19,20 +23,6 @@ pub enum TfError {
     AttemptedLookUpInFuture,
     /// There is no path between the from and to frame.
     CouldNotFindTransform,
-}
-
-#[derive(Debug)]
-pub struct BufferConfig {
-    max_transform_history: usize,
-    save_path: String,
-}
-impl BufferConfig {
-    pub fn new() -> Self{
-        BufferConfig {
-            max_transform_history: 1000,
-            save_path: home_dir().unwrap().display().to_string(),
-        }
-    }
 }
 
 /// The TransformHistory keeps track of a single transform between two frames
@@ -150,7 +140,7 @@ impl BufferTree {
         BufferTree {
             graph: DiGraphMap::new(),
             index: NodeIndex::new(),
-            config: BufferConfig::new(),
+            config: get_config().unwrap(),
         }
     }
 
@@ -174,8 +164,11 @@ impl BufferTree {
         }
 
         if !self.graph.contains_edge(source, target) {
-            self.graph
-                .add_edge(source, target, TransformHistory::new(kind, self.config.max_transform_history));
+            self.graph.add_edge(
+                source,
+                target,
+                TransformHistory::new(kind, self.config.max_transform_history),
+            );
             if is_cyclic_undirected(&self.graph) {
                 panic!("Cyclic graph detected");
             }
@@ -238,7 +231,7 @@ impl BufferTree {
     /// Lookup the latest transform without any checks
     /// This can be used for static transforms or if the user does not care if the
     /// transform is still valid.
-    /// NOTE: This might give you outdated transforms! 
+    /// NOTE: This might give you outdated transforms!
     pub fn lookup_latest_transform(
         &mut self,
         source: String,
@@ -333,13 +326,13 @@ impl BufferTree {
 
         // Convert the graph to DOT format manually
         let mut dot = String::from("digraph {\n");
-        
+
         // Add nodes
         for node in self.graph.nodes() {
             let name = reverse_index.get(&node).unwrap();
             dot.push_str(&format!("    {} [label=\"{}\"]\n", node, name));
         }
-        
+
         // Add edges with transform information
         for edge in self.graph.all_edges() {
             if let Some(latest) = edge.2.history.back() {
@@ -353,10 +346,13 @@ impl BufferTree {
                     latest.stamp
                 ));
             } else {
-                dot.push_str(&format!("    {} -> {} [label=\"No transforms\"]\n", edge.0, edge.1));
+                dot.push_str(&format!(
+                    "    {} -> {} [label=\"No transforms\"]\n",
+                    edge.0, edge.1
+                ));
             }
         }
-        
+
         dot.push_str("}");
         dot
     }
@@ -802,7 +798,8 @@ mod tests {
         assert_relative_eq!(rotation.0, -1.571, epsilon = 1e-2);
         assert_relative_eq!(rotation.1, 0.00, epsilon = 1e-2);
         assert_relative_eq!(rotation.2, 3.14, epsilon = 1e-2);
-    }    #[test]
+    }
+    #[test]
 
     fn test_robot_arm_transforms_interpolation() {
         let mut buffer_tree = BufferTree::new();
@@ -902,8 +899,11 @@ mod tests {
             );
         }
 
-        let transform = buffer_tree
-            .lookup_transform("base_link_inertia".to_string(), "shoulder_link".to_string(), 1.5);
+        let transform = buffer_tree.lookup_transform(
+            "base_link_inertia".to_string(),
+            "shoulder_link".to_string(),
+            1.5,
+        );
         assert!(transform.is_ok());
         let transform = transform.unwrap();
         let translation = transform.isometry.translation.vector;
@@ -946,7 +946,11 @@ mod tests {
         assert_relative_eq!(rotation.2, 3.142, epsilon = 1e-2);
 
         // Check if correct error raised
-        match buffer_tree.lookup_transform("base_link_inertia".to_string(), "shoulder_link".to_string(), 0.) {
+        match buffer_tree.lookup_transform(
+            "base_link_inertia".to_string(),
+            "shoulder_link".to_string(),
+            0.,
+        ) {
             Err(TfError::AttemptedLookupInPast) => {
                 // The function returned the expected error variant
                 assert!(true);
@@ -956,7 +960,11 @@ mod tests {
                 assert!(false, "Expected TfError::AttemptedLookupInPast");
             }
         }
-        match buffer_tree.lookup_transform("base_link_inertia".to_string(), "shoulder_link".to_string(), 3.) {
+        match buffer_tree.lookup_transform(
+            "base_link_inertia".to_string(),
+            "shoulder_link".to_string(),
+            3.,
+        ) {
             Err(TfError::AttemptedLookUpInFuture) => {
                 // The function returned the expected error variant
                 assert!(true);

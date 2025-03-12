@@ -1,13 +1,13 @@
-use iceoryx2::port::listener::{Listener};
+use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
-use nalgebra::{Translation3, UnitQuaternion};
-use schiebung_types::{
-    NewTransform, PubSubEvent, TransformRequest, TransformResponse, TransformType,
-};
 use log::info;
+use nalgebra::{Translation3, UnitQuaternion};
+use schiebung_core::types::{NewTransform, TransformRequest, TransformResponse, TransformType};
+use schiebung_server::types::PubSubEvent;
+
 fn encode_char_array(input: &String) -> [char; 100] {
     let mut char_array: [char; 100] = ['\0'; 100];
     for (i, c) in input.chars().enumerate() {
@@ -59,11 +59,11 @@ impl ListenerClient {
             .max_subscribers(10)
             .open_or_create()?;
         let listener = subscribe_service.subscriber_builder().create()?;
-        let notifier_service = node.service_builder(&service_name).event().open_or_create()?;
-        let tf_listener_event_listener = notifier_service
-            .listener_builder()
-            .create()?;
-
+        let notifier_service = node
+            .service_builder(&service_name)
+            .event()
+            .open_or_create()?;
+        let tf_listener_event_listener = notifier_service.listener_builder().create()?;
 
         Ok(Self {
             tf_listener: listener,
@@ -100,7 +100,10 @@ impl ListenerClient {
                 PubSubEvent::SentSample => {
                     info!("Server sent payload");
                     let sample = self.tf_listener.receive().unwrap().unwrap();
-                    info!("Received sample payload id: {}, self id: {}", sample.id, self.id);
+                    info!(
+                        "Received sample payload id: {}, self id: {}",
+                        sample.id, self.id
+                    );
                     if sample.id == self.id {
                         info!("Server sent payload with correct id");
                         let result = Ok(sample.clone());
@@ -124,7 +127,9 @@ impl ListenerClient {
 
 impl Drop for ListenerClient {
     fn drop(&mut self) {
-        self.tf_requester_notifier.notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into()).unwrap();
+        self.tf_requester_notifier
+            .notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into())
+            .unwrap();
     }
 }
 
@@ -135,7 +140,7 @@ pub struct PublisherClient {
 }
 
 impl PublisherClient {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>>{
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let node = NodeBuilder::new().create::<ipc::Service>()?;
         let publish_service = node
             .service_builder(&"new_tf".try_into()?)
@@ -205,13 +210,13 @@ pub struct VisualizerClient {
 impl VisualizerClient {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let node = NodeBuilder::new().create::<ipc::Service>()?;
-        
+
         let event_service = node
             .service_builder(&"visualizer".try_into()?)
             .event()
             .open_or_create()?;
         let visualizer_event = event_service.notifier_builder().create()?;
-        
+
         Ok(Self {
             visualizer_event: visualizer_event,
         })
@@ -230,4 +235,3 @@ impl Drop for VisualizerClient {
             .unwrap();
     }
 }
-

@@ -5,11 +5,18 @@ use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
 use log::{debug, error, info};
 use nalgebra::{Isometry, Quaternion, Translation3, UnitQuaternion};
-use schiebung_core::BufferTree;
-use schiebung_types::{
-    NewTransform, PubSubEvent, StampedIsometry, TransformRequest, TransformResponse, TransformType,
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+
+use schiebung_core::types::{
+    NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType,
+};
+use schiebung_core::BufferTree;
+
+pub mod types;
+use crate::types::PubSubEvent;
 
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
@@ -22,7 +29,10 @@ struct TFPublisher {
 }
 
 impl TFPublisher {
-    pub fn new(buffer: Arc<Mutex<BufferTree>>, id: u128) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        buffer: Arc<Mutex<BufferTree>>,
+        id: u128,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let node = NodeBuilder::new().create::<ipc::Service>()?;
         let service_name = ServiceName::new(&("tf_replay_".to_string() + &id.to_string()))?;
         let publisher_service = node
@@ -188,7 +198,10 @@ impl Server {
                     let publisher = TFPublisher::new(self.buffer.clone(), tf_request.id)?;
                     active_publishers.insert(tf_request.id, publisher);
                 }
-                active_publishers.get(&tf_request.id).unwrap().publish(&tf_request)?;
+                active_publishers
+                    .get(&tf_request.id)
+                    .unwrap()
+                    .publish(&tf_request)?;
             }
             None => (),
         }

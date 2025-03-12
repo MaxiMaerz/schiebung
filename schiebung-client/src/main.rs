@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use log::{error, info};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 use schiebung_client::{ListenerClient, PublisherClient, VisualizerClient};
-use schiebung_types::{StampedIsometry, StampedTransform, TransformType};
+use schiebung_core::types::{StampedIsometry, StampedTransform, TransformType};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -55,7 +55,9 @@ enum Commands {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::new().filter(None, log::LevelFilter::Info).init();
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Info)
+        .init();
     let cli = Cli::parse();
 
     match &cli.command {
@@ -87,7 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let translation = Translation3::new(*tx, *ty, *tz);
             let rotation = UnitQuaternion::new_normalize(Quaternion::new(*qx, *qy, *qz, *qw));
             pub_client.send_transform(from, to, translation, rotation, 1.0, TransformType::Static);
-            info!("Publishing transform from {} to {} with translation {:?} and rotation {:?}", from, to, translation, rotation);
+            info!(
+                "Publishing transform from {} to {} with translation {:?} and rotation {:?}",
+                from, to, translation, rotation
+            );
             // TODO: Implement transform publishing
         }
         Commands::Visualize => {

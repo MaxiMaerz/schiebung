@@ -1,14 +1,13 @@
 use iceoryx2::prelude::*;
-use nalgebra::{Quaternion, Translation3, UnitQuaternion};
-use schiebung_server::Server;
 use log::info;
+use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 use schiebung_client::{ListenerClient, PublisherClient};
-use schiebung_types::TransformType;
-use std::{thread, time::Duration};
+use schiebung_core::types::TransformType;
+use schiebung_server::Server;
 use std::sync::{Arc, Barrier};
+use std::{thread, time::Duration};
 mod common;
 const TIMEOUT: Duration = Duration::from_secs(3);
-
 
 #[test]
 /// This test checks if a single client can receive a transform
@@ -16,47 +15,47 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 pub fn test_basic_interaction() {
     common::setup_logger();
     let server_handle = thread::spawn(|| {
-            let server = Server::new().unwrap();
+        let server = Server::new().unwrap();
 
-            let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
-            let request_listener_guard = waitset.attach_notification(&server.request_listener_notifier).unwrap();
-            let transform_listener_guard =
-                waitset.attach_notification(&server.transform_listener_event_listener).unwrap();
-            let visualizer_event_guard = 
-                waitset.attach_notification(&server.visualizer_listener).unwrap();
+        let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
+        let request_listener_guard = waitset
+            .attach_notification(&server.request_listener_notifier)
+            .unwrap();
+        let transform_listener_guard = waitset
+            .attach_notification(&server.transform_listener_event_listener)
+            .unwrap();
+        let visualizer_event_guard = waitset
+            .attach_notification(&server.visualizer_listener)
+            .unwrap();
 
-            let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
+        let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
 
-            let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-                if attachment_id.has_event_from(&request_listener_guard) {
-                    server.handle_listener_event().unwrap();
-                } else if attachment_id.has_event_from(&transform_listener_guard) {
-                    server.handle_transform_listener_event().unwrap();
-                } else if attachment_id.has_event_from(&visualizer_event_guard) {
-                    server.handle_visualizer_event().unwrap();
-                } else if attachment_id.has_event_from(&timeout_guard) {
-                    info!("Timeout");
-                    return CallbackProgression::Stop
-                }
-                CallbackProgression::Continue
-            };
-            waitset.wait_and_process(fn_call).unwrap();
-            info!("Server shutting down");
-        });
+        let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
+            if attachment_id.has_event_from(&request_listener_guard) {
+                server.handle_listener_event().unwrap();
+            } else if attachment_id.has_event_from(&transform_listener_guard) {
+                server.handle_transform_listener_event().unwrap();
+            } else if attachment_id.has_event_from(&visualizer_event_guard) {
+                server.handle_visualizer_event().unwrap();
+            } else if attachment_id.has_event_from(&timeout_guard) {
+                info!("Timeout");
+                return CallbackProgression::Stop;
+            }
+            CallbackProgression::Continue
+        };
+        waitset.wait_and_process(fn_call).unwrap();
+        info!("Server shutting down");
+    });
 
     std::thread::sleep(Duration::from_secs(1));
 
     let sub_client = ListenerClient::new().unwrap();
-    let response = sub_client.request_transform(
-        &"root".to_string(),
-        &"child_1".to_string(),
-        0.0,
-    );
+    let response = sub_client.request_transform(&"root".to_string(), &"child_1".to_string(), 0.0);
     match response {
         Ok(_response) => {
             assert!(false)
         }
-        _ => assert!(true)
+        _ => assert!(true),
     }
 
     let pub_client = PublisherClient::new().unwrap();
@@ -70,11 +69,7 @@ pub fn test_basic_interaction() {
         TransformType::Static,
     );
 
-    let response = sub_client.request_transform(
-        &"root".to_string(),
-        &"child_1".to_string(),
-        1.0,
-    );
+    let response = sub_client.request_transform(&"root".to_string(), &"child_1".to_string(), 1.0);
     info!("Response: {:?}", response);
 
     match response {
@@ -82,7 +77,7 @@ pub fn test_basic_interaction() {
             assert_eq!(response.translation, [1.0, 2.0, 3.0]);
             assert_eq!(response.rotation, [0.0, 0.0, 0.0, 1.0]);
         }
-        _ => assert!(false)
+        _ => assert!(false),
     }
     server_handle.join().unwrap();
 }
@@ -99,33 +94,37 @@ fn test_multi_client_interaction() {
     let barrier_clone2 = barrier.clone();
 
     let server_handle = thread::spawn(|| {
-            let server = Server::new().unwrap();
+        let server = Server::new().unwrap();
 
-            let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
-            let request_listener_guard = waitset.attach_notification(&server.request_listener_notifier).unwrap();
-            let transform_listener_guard =
-                waitset.attach_notification(&server.transform_listener_event_listener).unwrap();
-            let visualizer_event_guard = 
-                waitset.attach_notification(&server.visualizer_listener).unwrap();
+        let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
+        let request_listener_guard = waitset
+            .attach_notification(&server.request_listener_notifier)
+            .unwrap();
+        let transform_listener_guard = waitset
+            .attach_notification(&server.transform_listener_event_listener)
+            .unwrap();
+        let visualizer_event_guard = waitset
+            .attach_notification(&server.visualizer_listener)
+            .unwrap();
 
-            let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
+        let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
 
-            let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-                if attachment_id.has_event_from(&request_listener_guard) {
-                    server.handle_listener_event().unwrap();
-                } else if attachment_id.has_event_from(&transform_listener_guard) {
-                    server.handle_transform_listener_event().unwrap();
-                } else if attachment_id.has_event_from(&visualizer_event_guard) {
-                    server.handle_visualizer_event().unwrap();
-                } else if attachment_id.has_event_from(&timeout_guard) {
-                    info!("Timeout");
-                    return CallbackProgression::Stop
-                }
-                CallbackProgression::Continue
-            };
-            waitset.wait_and_process(fn_call).unwrap();
-            info!("Server shutting down");
-        });
+        let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
+            if attachment_id.has_event_from(&request_listener_guard) {
+                server.handle_listener_event().unwrap();
+            } else if attachment_id.has_event_from(&transform_listener_guard) {
+                server.handle_transform_listener_event().unwrap();
+            } else if attachment_id.has_event_from(&visualizer_event_guard) {
+                server.handle_visualizer_event().unwrap();
+            } else if attachment_id.has_event_from(&timeout_guard) {
+                info!("Timeout");
+                return CallbackProgression::Stop;
+            }
+            CallbackProgression::Continue
+        };
+        waitset.wait_and_process(fn_call).unwrap();
+        info!("Server shutting down");
+    });
 
     std::thread::sleep(Duration::from_secs(1));
     let pub_client = PublisherClient::new().unwrap();
@@ -148,29 +147,23 @@ fn test_multi_client_interaction() {
     // Wait for the server to process the transforms
     let sync_sub_client = ListenerClient::new().unwrap();
     // Check if the transforms are available
-    let response = sync_sub_client.request_transform(
-        &"root".to_string(),
-        &"child_1".to_string(),
-        1.0,
-    );
+    let response =
+        sync_sub_client.request_transform(&"root".to_string(), &"child_1".to_string(), 1.0);
     match response {
         Ok(response) => {
             assert_eq!(response.translation, [1.0, 2.0, 3.0]);
             assert_eq!(response.rotation, [0.0, 0.0, 0.0, 1.0]);
         }
-        _ => assert!(false)
+        _ => assert!(false),
     }
-    let response = sync_sub_client.request_transform(
-        &"root".to_string(),
-        &"child_2".to_string(),
-        1.0,
-    );
+    let response =
+        sync_sub_client.request_transform(&"root".to_string(), &"child_2".to_string(), 1.0);
     match response {
         Ok(response) => {
             assert_eq!(response.translation, [1.0, 2.0, 1.0]);
             assert_eq!(response.rotation, [0.0, 0.0, 0.0, 1.0]);
         }
-        _ => assert!(false)
+        _ => assert!(false),
     }
     info!("Server and clients ready");
 
@@ -179,17 +172,14 @@ fn test_multi_client_interaction() {
         let sub_client = ListenerClient::new().unwrap();
         barrier_clone1.wait(); // Wait for all threads to be ready
         for _ in 0..100 {
-            let response = sub_client.request_transform(
-                &"root".to_string(),
-                &"child_1".to_string(),
-                1.0,
-            );
+            let response =
+                sub_client.request_transform(&"root".to_string(), &"child_1".to_string(), 1.0);
             match response {
                 Ok(response) => {
                     assert_eq!(response.translation, [1.0, 2.0, 3.0]);
                     assert_eq!(response.rotation, [0.0, 0.0, 0.0, 1.0]);
                 }
-                _ => assert!(false)
+                _ => assert!(false),
             }
         }
         info!("Client 1 finished");
@@ -200,17 +190,14 @@ fn test_multi_client_interaction() {
         let sub_client = ListenerClient::new().unwrap();
         barrier_clone2.wait(); // Wait for all threads to be ready
         for _ in 0..100 {
-            let response = sub_client.request_transform(
-                &"root".to_string(),
-                &"child_2".to_string(),
-                1.0,
-            );
+            let response =
+                sub_client.request_transform(&"root".to_string(), &"child_2".to_string(), 1.0);
             match response {
                 Ok(response) => {
                     assert_eq!(response.translation, [1.0, 2.0, 1.0]);
                     assert_eq!(response.rotation, [0.0, 0.0, 0.0, 1.0]);
                 }
-                _ => assert!(false)
+                _ => assert!(false),
             }
         }
         info!("Client 2 finished");

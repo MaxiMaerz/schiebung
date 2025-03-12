@@ -1,4 +1,3 @@
-use iceoryx2::port::event_id::EventId;
 use nalgebra::{Isometry, Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
 use std::cmp::Ordering;
 use std::fmt;
@@ -51,43 +50,6 @@ pub struct NewTransform {
     pub kind: u8,
 }
 
-#[derive(Debug)]
-pub enum PubSubEvent {
-    PublisherConnected = 0,
-    PublisherDisconnected = 1,
-    SubscriberConnected = 2,
-    SubscriberDisconnected = 3,
-    SentSample = 4,
-    Error = 5,
-    ReceivedSample = 6,
-    SentHistory = 7,
-    ProcessDied = 8,
-    Unknown,
-}
-
-impl From<PubSubEvent> for EventId {
-    fn from(value: PubSubEvent) -> Self {
-        EventId::new(value as usize)
-    }
-}
-
-impl From<EventId> for PubSubEvent {
-    fn from(value: EventId) -> Self {
-        match value.as_value() {
-            0 => PubSubEvent::PublisherConnected,
-            1 => PubSubEvent::PublisherDisconnected,
-            2 => PubSubEvent::SubscriberConnected,
-            3 => PubSubEvent::SubscriberDisconnected,
-            4 => PubSubEvent::SentSample,
-            5 => PubSubEvent::Error,
-            6 => PubSubEvent::ReceivedSample,
-            7 => PubSubEvent::SentHistory,
-            8 => PubSubEvent::ProcessDied,
-            _ => PubSubEvent::Unknown,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct StampedTransform {
     stamp: f64,
@@ -118,14 +80,17 @@ impl Into<StampedTransform> for TransformResponse {
 }
 impl fmt::Display for StampedTransform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StampedTransform(stamp: {}, translation: {}, rotation: {})", self.stamp, self.translation, self.rotation)
+        write!(
+            f,
+            "StampedTransform(stamp: {}, translation: {}, rotation: {})",
+            self.stamp, self.translation, self.rotation
+        )
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct StampedIsometry {
     pub isometry: Isometry3<f64>,
-    /// The time at which this isometry was recorded in seconds
     pub stamp: f64,
 }
 

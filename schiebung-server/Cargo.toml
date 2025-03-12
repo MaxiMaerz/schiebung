@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 iceoryx2 = "*"
-schiebung-types = {path = "../schiebung-types"}
 schiebung-core = {path = "../schiebung-core"}
 log = "*"
 env_logger = "*"
