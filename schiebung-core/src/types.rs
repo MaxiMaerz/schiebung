@@ -80,10 +80,13 @@ impl Into<StampedTransform> for TransformResponse {
 }
 impl fmt::Display for StampedTransform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Convert quaternion to Euler angles
         write!(
             f,
-            "StampedTransform(stamp: {}, translation: {}, rotation: {})",
-            self.stamp, self.translation, self.rotation
+            "stamp: {},\ntranslation: {:.3}, {:.3}, {:.3},\nrotation (xyzw): {:.3}, {:.3}, {:.3}, {:.3},\nrotation (rpy): {:.3}, {:.3}, {:.3}",
+            self.stamp, self.translation.x, self.translation.y, self.translation.z,
+            self.rotation.i, self.rotation.j, self.rotation.k, self.rotation.w,
+            self.rotation.euler_angles().0, self.rotation.euler_angles().1, self.rotation.euler_angles().2
         )
     }
 }

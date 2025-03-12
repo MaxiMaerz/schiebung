@@ -3,7 +3,7 @@ use log::info;
 use schiebung_server::Server;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::new()
-        .filter(None, log::LevelFilter::Info)
+        .filter(None, log::LevelFilter::Error)
         .init();
     let server = Server::new()?;
 

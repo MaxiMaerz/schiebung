@@ -10,9 +10,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use schiebung_core::types::{
+use schiebung_core::{types::{
     NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType,
-};
+}, TfError};
 use schiebung_core::BufferTree;
 
 pub mod types;
@@ -53,10 +53,19 @@ impl TFPublisher {
     }
 
     pub fn publish(&self, tf_request: &TransformRequest) -> Result<(), Box<dyn std::error::Error>> {
-        let target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
-            decode_char_array(&tf_request.from),
-            decode_char_array(&tf_request.to),
-        );
+        let target_isometry: Result<StampedIsometry, TfError>;
+        if tf_request.time == 0.0 {
+            target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
+                decode_char_array(&tf_request.from),
+                decode_char_array(&tf_request.to),
+            );
+        } else {
+            target_isometry = self.buffer.lock().unwrap().lookup_transform(
+                decode_char_array(&tf_request.from),
+                decode_char_array(&tf_request.to),
+                tf_request.time,
+            );
+        }
         match target_isometry {
             Ok(target_isometry) => {
                 let sample = self.publisher.loan_uninit().unwrap();

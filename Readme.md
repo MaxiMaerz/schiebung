@@ -1,8 +1,9 @@
 # Schiebung
 
-Schiebung reimplements the tf2 library without the need for ROS (2). However the Buffer can be filled with data from ROS (2).
+Schiebung reimplements the tf2 library without the need for ROS. However the Buffer can be filled with data from ROS.
 
 The ROS implementation can be found here: [tf2](https://github.com/ros2/geometry2/tree/master/tf2/src/buffer)
+
 It also draws inspiration form the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
 Currently we use [iceoryx2](https://github.com/eclipse-iceoryx/iceoryx2) for inter-process communication.

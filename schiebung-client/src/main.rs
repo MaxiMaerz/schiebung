@@ -22,6 +22,7 @@ enum Commands {
         #[arg(long)]
         to: String,
         /// Time to look up (default: 0.0)
+        /// If time is 0.0, the latest transform is returned
         #[arg(long, default_value_t = 0.0)]
         time: f64,
     },
@@ -56,7 +57,7 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::new()
-        .filter(None, log::LevelFilter::Info)
+        .filter(None, log::LevelFilter::Error)
         .init();
     let cli = Cli::parse();
 
@@ -70,6 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let stamped_iso: StampedIsometry = response.clone().into();
                     info!("Isometry: {:?}", stamped_iso);
                     info!("TF: {:?}", stamped_tf);
+                    println!("Transform:\n{} -> {}:", from, to);
+                    println!("{}", stamped_tf);
                 }
                 Err(e) => error!("Lookup error: {:?}", e),
             }
