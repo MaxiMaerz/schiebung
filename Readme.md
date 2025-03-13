@@ -1,6 +1,6 @@
 # Schiebung
 
--> Add origin of name
+Schiebung is german for "shift" as in "shift the frame" or "shift the coordinate system".
 
 Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames. 
 It is assumed that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated.
@@ -43,6 +43,8 @@ This library is still under development and the API is not considered stable yet
 
 The core implementation of the Buffer is tested, we are still missing a representative test for the interpolation / time travel feature.
 It yields the same result as the ROS-implementation.
+
+The client and server are tested for correct results, however until iceoryx2 merges the request/response functionality heavy traffic may cause issues.
 
 ## Installation
 
