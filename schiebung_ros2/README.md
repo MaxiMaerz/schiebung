@@ -2,6 +2,28 @@
 
 This crate provides a ROS 2 interface for the schiebung library.
 
+
+## Installation
+
+Follow the instructions on: [ros2-rust](https://github.com/ros2-rust/ros2_rust).
+Then in a ros workspace clone the geometry2 package. to build the rust bindings for tf messages.
+
+```bash
+cd <ros2_workspace>
+cd src/ros2
+git clone git@github.com:ros2/geometry2.git
+```
+
+Then build the workspace.
+
+```bash
+colcon build --packages-select schiebung_ros2
+```
+
+
+
+
+
 There are two ways to use the TF Buffer:
 
 * Use the `RosBuffer` struct to listen to the `/tf` and `/tf_static` topics and build a TF buffer in memory.
