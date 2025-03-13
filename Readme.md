@@ -28,7 +28,7 @@ Currently we use [iceoryx2](https://github.com/eclipse-iceoryx/iceoryx2) for int
 They claim extremely low latencies. However this has to be evaluated and tested.
 
 However in an integrated system you might already have a ROS-tf2 context and want to use that.\
-In this case you can use schiebung_ros2: [README](schiebung_ros2/README.md).
+In this case you can use schiebung_ros2: [README](schiebung_ros2/Readme.md).
 
 This library is still under development and the API is not considered stable yet.
 
