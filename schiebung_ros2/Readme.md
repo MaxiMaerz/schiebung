@@ -2,7 +2,6 @@
 
 This crate provides a ROS 2 interface for the schiebung library.
 
-
 ## Installation
 
 Follow the instructions on: [ros2-rust](https://github.com/ros2-rust/ros2_rust).
@@ -12,17 +11,27 @@ Then in a ros workspace clone the geometry2 package. to build the rust bindings 
 cd <ros2_workspace>
 cd src/ros2
 git clone git@github.com:ros2/geometry2.git
+cd geometry2
+git checkout YOUR_ROS_VERSION
 ```
 
 Then build the workspace.
 
 ```bash
-colcon build --packages-select schiebung_ros2
+# Ignore the schiebung-core package it has no binaries and colcon will fail
+colcon build --packages-ignore schiebung-core
 ```
 
+Afterwards you should be able to:
 
+```bash
+ros2 launch schiebung_ros2 schiebung_ros2.launch.xml
+```
 
+If anything fails check the FAQ at [ros2-rust](https://github.com/ros2-rust/ros2_rust/wiki/FAQ).
+For me restarting from scratch (delete the src, build and install folders) and starting over fixed most issues.
 
+## Usage
 
 There are two ways to use the TF Buffer:
 
@@ -39,12 +48,25 @@ This buffer can be used to lookup transforms and visualize the TF tree. it works
 NOTE: The executor will NOT spin automatically but must be spun by the user.
 
 ```rust
-let mut executor = Context::default_from_env()?.create_basic_executor();
-let buffer = RosBuffer::new(&executor)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut executor = Context::default_from_env()?.create_basic_executor();
+    let buffer = RosBuffer::new(&executor)?;
 
-while executor.spin(SpinOptions::spin_once()) {
-    println!("Lookup transform: {:?}", buffer.lookup_transform("base_link", "odom", 0.0)?);
+    loop {
+        executor.spin(SpinOptions::spin_once());
+        let res = buffer.lookup_latest_transform("wrist_1_link", "wrist_3_link");
+        match res {
+            Ok(transform) => {
+                println!("Lookup transform: {:?}", transform);
+            }
+            Err(e) => {
+                println!("Error: {:?}", e);
+            }
+        }
+    }
+    Ok(())
 }
+
 ```
 
 ## TFRelay

@@ -11,3 +11,6 @@ tf2_msgs = "*"
 nalgebra = "*"
 log = "*"
 env_logger = "*"
+
+[package.metadata.ros]
+install_to_share = ["launch"]
