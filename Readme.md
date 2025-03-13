@@ -1,22 +1,26 @@
 # Schiebung
 
+-> Add origin of name
+
 Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames. 
-We assume that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated.
+It is assumed that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated.
 
 The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
 It also draws inspiration form the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
-The motivation for this package is a missing implementation for Rust in Ros2. We want to offer:
+The motivation for this package is a missing implementation for Rust in ROS 2. 
+
+Design goals
 
 * ROS agnostic library. The core functionality should be usable without any ROS dependencies or knowledge.
 * A client server architecture which works without ROS. We want to focus on low latency without remote access.
-* Integration into the ROS ecosystem without sacrificing the point above.
+* Integration into the ROS ecosystem without compromising on the points above.
 
-Therefore the following creates will be available:
+The project consists of the following crates:
 
-* schiebung-core: The library which offers the data-structure and functions to store and lookup transforms.
+* schiebung-core: data-structures and functions to store and lookup transforms.
 * schiebung-client/server: A standalone server which can be accessed by multiple clients which can store and lookup transformations. They interface via iceoryx2 IPC.
-* schiebung_ros2: This crate will offer a ROS interface to fill the Buffer on a schiebung-server with data while still allowing a client to connect to it without ROS. It also offers a library which fills a buffer locally without any server/client access (The traditional ROS implementation).
+* schiebung_ros2: A ROS 2 interface to fill the buffer on a schiebung-server with data while still allowing a client to connect to it without ROS. It also offers a library which fills a buffer locally without any server/client access (The traditional ROS implementation).
 
 For small applications a few local instances of the Buffer are of no concern, however for larger projects it can make sense to limit the amount of subscribers to tf and keep a global buffer.
 
