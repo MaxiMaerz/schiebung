@@ -75,5 +75,5 @@ The `TFRelay` fills a buffer with the latest TF data from the `/tf` and `/tf_sta
 The Buffer server must be started in another thread (check the documentation of the schiebung-client library for more information).
 
 ```bash
-ros2 launch schiebung_ros2 schiebung_ros2.launch.xml
+ros2 launch schiebung_ros2 tf_relay.launch.xml
 ```
