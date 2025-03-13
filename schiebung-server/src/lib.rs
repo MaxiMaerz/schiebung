@@ -257,12 +257,15 @@ impl Server {
                 ),
                 stamp: new_tf.time,
             };
-            self.buffer.lock().unwrap().update(
+            let result = self.buffer.lock().unwrap().update(
                 decode_char_array(&new_tf.from),
                 decode_char_array(&new_tf.to),
                 iso,
                 TransformType::try_from(new_tf.kind).unwrap(),
             );
+            if result.is_err() {
+                error!("Error updating transform: {:?}", result.err().unwrap());
+            }
         }
         Ok(())
     }

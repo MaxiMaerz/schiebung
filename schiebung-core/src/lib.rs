@@ -59,6 +59,8 @@ pub enum TfError {
     AttemptedLookUpInFuture,
     /// There is no path between the from and to frame.
     CouldNotFindTransform,
+    /// The graph is cyclic or the target has multiple incoming edges.
+    InvalidGraph,
 }
 
 /// The TransformHistory keeps track of a single transform between two frames
@@ -188,7 +190,7 @@ impl BufferTree {
         target: String,
         stamped_isometry: StampedIsometry,
         kind: TransformType,
-    ) {
+    ) -> Result<(), TfError> {
         let source = self.index.index(source);
         let target = self.index.index(target);
 
@@ -205,14 +207,49 @@ impl BufferTree {
                 target,
                 TransformHistory::new(kind, self.config.max_transform_history),
             );
-            if is_cyclic_undirected(&self.graph) {
-                panic!("Cyclic graph detected");
+            if is_cyclic_undirected(&self.graph)
+                || self
+                    .graph
+                    .neighbors_directed(target, petgraph::Direction::Incoming)
+                    .count()
+                    > 1
+            {
+                // Remove the edge and nodes if they have no other edges
+                self.graph.remove_edge(source, target);
+                if self
+                    .graph
+                    .neighbors_directed(target, petgraph::Direction::Incoming)
+                    .count()
+                    < 1
+                    && self
+                        .graph
+                        .neighbors_directed(target, petgraph::Direction::Outgoing)
+                        .count()
+                        < 1
+                {
+                    self.graph.remove_node(target);
+                }
+                if self
+                    .graph
+                    .neighbors_directed(source, petgraph::Direction::Incoming)
+                    .count()
+                    < 1
+                    && self
+                        .graph
+                        .neighbors_directed(source, petgraph::Direction::Outgoing)
+                        .count()
+                        < 1
+                {
+                    self.graph.remove_node(source);
+                }
+                return Err(TfError::InvalidGraph);
             }
         }
         self.graph
             .edge_weight_mut(source, target)
             .unwrap()
             .update(stamped_isometry);
+        Ok(())
     }
 
     /// Searches for a path in the graph
@@ -440,12 +477,14 @@ mod tests {
         };
 
         // Add first transformation
-        buffer_tree.update(
-            source.clone(),
-            target.clone(),
-            stamped_isometry.clone(),
-            TransformType::Static,
-        );
+        buffer_tree
+            .update(
+                source.clone(),
+                target.clone(),
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )
+            .unwrap();
 
         // Ensure the nodes exist
         let source_idx = buffer_tree.index.index(source.clone());
@@ -470,12 +509,14 @@ mod tests {
             isometry: Isometry3::identity(),
             stamp: 2.0,
         };
-        buffer_tree.update(
-            source.clone(),
-            target.clone(),
-            stamped_isometry_2.clone(),
-            TransformType::Static,
-        );
+        buffer_tree
+            .update(
+                source.clone(),
+                target.clone(),
+                stamped_isometry_2.clone(),
+                TransformType::Static,
+            )
+            .unwrap();
 
         // Ensure the history is updated
         let edge_weight = buffer_tree
@@ -487,7 +528,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Cyclic graph detected")]
     fn test_buffer_tree_detects_cycles() {
         let mut buffer_tree = BufferTree::new();
 
@@ -501,71 +541,120 @@ mod tests {
         };
 
         // Add edges A → B and B → C
-        buffer_tree.update(
-            a.clone(),
-            b.clone(),
-            stamped_isometry.clone(),
-            TransformType::Static,
-        );
-        buffer_tree.update(
-            b.clone(),
-            c.clone(),
-            stamped_isometry.clone(),
-            TransformType::Static,
-        );
+        buffer_tree
+            .update(
+                a.clone(),
+                b.clone(),
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )
+            .unwrap();
+        buffer_tree
+            .update(
+                b.clone(),
+                c.clone(),
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )
+            .unwrap();
 
         // Creating a cycle C → A should panic
-        buffer_tree.update(
+        let result = buffer_tree.update(
             c.clone(),
             a.clone(),
             stamped_isometry.clone(),
             TransformType::Static,
         );
+        assert!(result.is_err());
+        assert!(buffer_tree.graph.contains_node(buffer_tree.index.index(a)));
+        assert!(buffer_tree.graph.contains_node(buffer_tree.index.index(b)));
+        assert!(buffer_tree.graph.contains_node(buffer_tree.index.index(c)));
+    }
+
+    #[test]
+    fn test_multiple_incoming_edges() {
+        let mut buffer_tree = BufferTree::new();
+
+        let a = "A".to_string();
+        let b = "B".to_string();
+        let c = "C".to_string();
+
+        let stamped_isometry = StampedIsometry {
+            isometry: Isometry3::identity(),
+            stamp: 1.0,
+        };
+
+        buffer_tree
+            .update(
+                a.clone(),
+                b.clone(),
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )
+            .unwrap();
+        let result = buffer_tree.update(
+            c.clone(),
+            b.clone(),
+            stamped_isometry.clone(),
+            TransformType::Static,
+        );
+        assert!(result.is_err());
+        assert!(buffer_tree.graph.contains_node(buffer_tree.index.index(a)));
+        assert!(buffer_tree.graph.contains_node(buffer_tree.index.index(b)));
+        assert!(!buffer_tree.graph.contains_node(buffer_tree.index.index(c)));
     }
 
     #[test]
     fn test_find_path() {
         let mut buffer_tree = BufferTree::new();
 
-        buffer_tree.update(
-            "A".to_string(),
-            "B".to_string(),
-            StampedIsometry {
-                isometry: Isometry3::identity(),
-                stamp: 1.0,
-            },
-            TransformType::Dynamic,
-        );
+        buffer_tree
+            .update(
+                "A".to_string(),
+                "B".to_string(),
+                StampedIsometry {
+                    isometry: Isometry3::identity(),
+                    stamp: 1.0,
+                },
+                TransformType::Dynamic,
+            )
+            .unwrap();
 
-        buffer_tree.update(
-            "A".to_string(),
-            "C".to_string(),
-            StampedIsometry {
-                isometry: Isometry3::identity(),
-                stamp: 2.0,
-            },
-            TransformType::Dynamic,
-        );
+        buffer_tree
+            .update(
+                "A".to_string(),
+                "C".to_string(),
+                StampedIsometry {
+                    isometry: Isometry3::identity(),
+                    stamp: 2.0,
+                },
+                TransformType::Dynamic,
+            )
+            .unwrap();
 
-        buffer_tree.update(
-            "B".to_string(),
-            "D".to_string(),
-            StampedIsometry {
-                isometry: Isometry3::identity(),
-                stamp: 3.0,
-            },
-            TransformType::Dynamic,
-        );
+        buffer_tree
+            .update(
+                "B".to_string(),
+                "D".to_string(),
+                StampedIsometry {
+                    isometry: Isometry3::identity(),
+                    stamp: 3.0,
+                },
+                TransformType::Dynamic,
+            )
+            .unwrap();
 
-        buffer_tree.update(
-            "B".to_string(),
-            "E".to_string(),
-            StampedIsometry {
-                isometry: Isometry3::identity(),
-                stamp: 3.0,
-            },
-            TransformType::Dynamic,
-        );
+        buffer_tree
+            .update(
+                "B".to_string(),
+                "E".to_string(),
+                StampedIsometry {
+                    isometry: Isometry3::identity(),
+                    stamp: 3.0,
+                },
+                TransformType::Dynamic,
+            )
+            .unwrap();
 
         println!("{:?}", buffer_tree.visualize());
 
@@ -686,12 +775,14 @@ mod tests {
                 stamp: timestamp,
             };
 
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry,
-                TransformType::Dynamic,
-            );
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
         }
 
         let transform = buffer_tree
@@ -809,12 +900,14 @@ mod tests {
                 stamp: timestamp,
             };
 
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry,
-                TransformType::Dynamic,
-            );
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
         }
 
         println!("{}", buffer_tree.visualize());
@@ -921,18 +1014,22 @@ mod tests {
                 stamp: timestamp_2,
             };
 
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry_1,
-                TransformType::Dynamic,
-            );
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry_2,
-                TransformType::Dynamic,
-            );
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry_1,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry_2,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
         }
 
         let transform = buffer_tree.lookup_transform(
@@ -1311,12 +1408,14 @@ mod tests {
                 ),
                 stamp: 0.0,
             };
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry,
-                TransformType::Dynamic,
-            );
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
         }
 
         // Add transforms at t=1.0
@@ -1333,12 +1432,14 @@ mod tests {
                 ),
                 stamp: 1.0,
             };
-            buffer_tree.update(
-                source.to_string(),
-                target.to_string(),
-                stamped_isometry,
-                TransformType::Dynamic,
-            );
+            buffer_tree
+                .update(
+                    source.to_string(),
+                    target.to_string(),
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )
+                .unwrap();
         }
 
         // Look up transform at t=0.2
