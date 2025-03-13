@@ -164,7 +164,7 @@ impl NodeIndex {
 /// The core BufferImplementation
 /// The TF Graph is represented as a DiGraphMap:
 /// This means the transforms build a acyclic direct graph
-/// We check if the graph is acyclic every time a node is added
+/// We check if the graph is acyclic or if the target has multiple incoming edges
 /// We currently do NOT check if the graph is disconnected
 /// The frame names are the nodes and the transform history is saved on the edges
 pub struct BufferTree {
