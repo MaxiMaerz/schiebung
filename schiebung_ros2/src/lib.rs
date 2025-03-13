@@ -53,7 +53,16 @@ impl RosBuffer {
         let buffer_clone = Arc::clone(&buffer);
         let static_tf_subscriber = node.create_subscription::<TFMessage, _>(
             "/tf_static",
-            QOS_PROFILE_DEFAULT,
+            QoSProfile{
+                history: QoSHistoryPolicy::KeepLast {depth: 1},
+                reliability: QoSReliabilityPolicy::Reliable,
+                durability: QoSDurabilityPolicy::TransientLocal,
+                deadline: QoSDuration::Infinite,
+                lifespan: QoSDuration::Infinite,
+                liveliness: QoSLivelinessPolicy::Automatic,
+                liveliness_lease_duration: QoSDuration::Infinite,
+                avoid_ros_namespace_conventions: false,
+            },
             move |msg: TFMessage| {
                 for transform in msg.transforms {
                     let stamp =
