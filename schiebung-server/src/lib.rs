@@ -10,10 +10,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use schiebung_core::{types::{
-    NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType,
-}, TfError};
 use schiebung_core::BufferTree;
+use schiebung_core::{
+    types::{NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType},
+    TfError,
+};
 
 pub mod types;
 use crate::types::PubSubEvent;

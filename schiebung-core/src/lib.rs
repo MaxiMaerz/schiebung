@@ -337,7 +337,7 @@ impl BufferTree {
             } else {
                 isometry *= self
                     .graph
-                    .edge_weight(source_idx, target_idx)
+                    .edge_weight(target_idx, source_idx)
                     .unwrap()
                     .interpolate_isometry_at_time(time)?
                     .inverse();
@@ -835,8 +835,8 @@ mod tests {
         assert_relative_eq!(rotation.1, 0.00, epsilon = 1e-2);
         assert_relative_eq!(rotation.2, 3.14, epsilon = 1e-2);
     }
-    #[test]
 
+    #[test]
     fn test_robot_arm_transforms_interpolation() {
         let mut buffer_tree = BufferTree::new();
 
@@ -1019,6 +1019,466 @@ mod tests {
                 // The function did not return the expected error variant
                 assert!(false, "Expected TfError::AttemptedLookupInPast");
             }
+        }
+    }
+
+    /// This test is generated using the following python code:
+    /// It tests if the interpolation yields the same result as the ROS TF2 Buffer.
+    ///
+    /// import random
+    ///
+    /// import yaml
+    /// from geometry_msgs.msg import TransformStamped, Transform, Quaternion, Vector3
+    /// from std_msgs.msg import Header
+    /// from rclpy.time import Time
+    /// import rclpy
+    /// from rclpy.node import Node
+    /// from tf2_ros.buffer import Buffer
+    /// from tf2_ros.transform_listener import TransformListener
+    /// from tf2_ros import TransformBroadcaster
+    /// def generate_random_transform(mock_time: float, frame_id: str, child_frame_id: str):
+    ///     random_numbers = [random.random() for _ in range(4)]
+    ///     # Calculate the sum of these numbers
+    ///     total_sum = sum(random_numbers)
+    ///     # Normalize the numbers so that their sum is 1
+    ///     normalized_numbers = [x / total_sum for x in random_numbers]
+    ///
+    ///     return TransformStamped(
+    ///         header=Header(
+    ///             frame_id=frame_id,
+    ///             stamp=Time(seconds=mock_time).to_msg(),
+    ///         ),
+    ///         child_frame_id=child_frame_id,
+    ///         transform=Transform(
+    ///             translation=Vector3(x=random.uniform(-1, 1), y=random.uniform(-1, 1), z=random.uniform(-1, 1)),
+    ///             rotation=Quaternion(x=normalized_numbers[0], y=normalized_numbers[1], z=normalized_numbers[2], w=normalized_numbers[3]),
+    ///         ),
+    ///     )
+    ///
+    /// def generate_ro_time_from_float(mock_time: float):
+    ///     return Time(seconds=mock_time)
+    ///
+    /// def transform_stamped_to_dict(transform: TransformStamped) -> dict:
+    ///     return {
+    ///         'header': {
+    ///             'frame_id': transform.header.frame_id,
+    ///             'stamp': transform.header.stamp.sec + transform.header.stamp.nanosec * 1e-9,
+    ///         },
+    ///         'child_frame_id': transform.child_frame_id,
+    ///         'transform': {
+    ///             'translation': {
+    ///                 'x': transform.transform.translation.x,
+    ///                 'y': transform.transform.translation.y,
+    ///                 'z': transform.transform.translation.z,
+    ///             },
+    ///             'rotation': {
+    ///                 'x': transform.transform.rotation.x,
+    ///                 'y': transform.transform.rotation.y,
+    ///                 'z': transform.transform.rotation.z,
+    ///                 'w': transform.transform.rotation.w,
+    ///             }
+    ///         }
+    ///     }
+    /// class FramePublisher(Node):
+    ///
+    ///     def __init__(self):
+    ///         super().__init__('turtle_tf2_frame_publisher')
+    ///         # Initialize the transform broadcaster
+    ///         self.tf_broadcaster = TransformBroadcaster(self)
+    ///         self.tf_buffer = Buffer()
+    ///
+    ///         self.tf_listener = TransformListener(self.tf_buffer, self)
+    ///
+    ///
+    ///     def publish_transforms(self):
+    ///         transforms_t0 = [
+    ///             generate_random_transform(mock_time=0.0, frame_id="a", child_frame_id="b"),
+    ///             generate_random_transform(mock_time=0.0, frame_id="b", child_frame_id="c"),
+    ///             generate_random_transform(mock_time=0.0, frame_id="c", child_frame_id="d"),
+    ///             generate_random_transform(mock_time=0.0, frame_id="d", child_frame_id="e"),
+    ///             generate_random_transform(mock_time=0.0, frame_id="e", child_frame_id="f"),
+    ///         ]
+    ///         transforms_t1 = [
+    ///             generate_random_transform(mock_time=1.0, frame_id="a", child_frame_id="b"),
+    ///             generate_random_transform(mock_time=1.0, frame_id="b", child_frame_id="c"),
+    ///             generate_random_transform(mock_time=1.0, frame_id="c", child_frame_id="d"),
+    ///             generate_random_transform(mock_time=1.0, frame_id="d", child_frame_id="e"),
+    ///             generate_random_transform(mock_time=1.0, frame_id="e", child_frame_id="f"),
+    ///         ]
+    ///         input_yaml = []
+    ///
+    ///         for transform in transforms_t0 + transforms_t1:
+    ///             input_yaml.append(transform_stamped_to_dict(transform))
+    ///
+    ///         print(yaml.dump(input_yaml))
+    ///         # Fill the buffer
+    ///         for transform in transforms_t0 + transforms_t1:
+    ///             self.tf_broadcaster.sendTransform(transform)
+    ///
+    ///     def request_transform(self):
+    ///         # Get the transform from the buffer
+    ///         t_1 = self.tf_buffer.lookup_transform("a", "f", generate_ro_time_from_float(0.2))
+    ///         t_2 = self.tf_buffer.lookup_transform("a", "f", generate_ro_time_from_float(0.5))
+    ///         t_3 = self.tf_buffer.lookup_transform("a", "f", generate_ro_time_from_float(0.8))
+    ///
+    ///         t_4 = self.tf_buffer.lookup_transform("f", "a", generate_ro_time_from_float(0.2))
+    ///         t_5 = self.tf_buffer.lookup_transform("f", "a", generate_ro_time_from_float(0.5))
+    ///         t_6 = self.tf_buffer.lookup_transform("f", "a", generate_ro_time_from_float(0.8))
+    ///
+    ///         print(yaml.dump(transform_stamped_to_dict(t_1)))
+    ///         print(yaml.dump(transform_stamped_to_dict(t_2)))
+    ///         print(yaml.dump(transform_stamped_to_dict(t_3)))
+    ///
+    ///         print(yaml.dump(transform_stamped_to_dict(t_4)))
+    ///         print(yaml.dump(transform_stamped_to_dict(t_5)))
+    ///         print(yaml.dump(transform_stamped_to_dict(t_6)))
+    ///
+    /// def main():
+    ///     rclpy.init()
+    ///     node = FramePublisher()
+    ///     node.publish_transforms()
+    ///     while rclpy.ok():
+    ///         rclpy.spin_once(node)
+    ///         try:
+    ///             node.request_transform()
+    ///         except Exception as e:
+    ///             print(e)
+    ///             continue
+    ///         break
+    ///
+    ///     rclpy.shutdown()
+    ///
+    ///
+    /// if __name__ == "__main__":
+    ///     main()
+    #[test]
+    fn test_complex_interpolation() {
+        let mut buffer_tree = BufferTree::new();
+
+        // First set of transforms at t=0.0
+        let transforms_t0 = vec![
+            (
+                "a",
+                "b",
+                [0.9542820082386645, -0.6552492462418078, 0.7161777435789107],
+                [
+                    0.5221303556354912,
+                    0.35012976926397515,
+                    0.06385453213291199,
+                    0.06388534296762166,
+                ],
+            ),
+            (
+                "b",
+                "c",
+                [
+                    -0.19846060797892018,
+                    0.37060239713344223,
+                    -0.9325041671812722,
+                ],
+                [
+                    0.17508543470264146,
+                    0.015141878067977513,
+                    0.7464281310309472,
+                    0.0633445561984338,
+                ],
+            ),
+            (
+                "c",
+                "d",
+                [-0.794492125974928, 0.3998294717449842, 0.10994520945722774],
+                [
+                    0.09927023004042039,
+                    0.3127284173757304,
+                    0.09323219806580624,
+                    0.49476915451804293,
+                ],
+            ),
+            (
+                "d",
+                "e",
+                [
+                    -0.10568484318994975,
+                    -0.25311133155256416,
+                    -0.5050832697305845,
+                ],
+                [
+                    0.34253037231148725,
+                    0.18360347226679302,
+                    0.03909759741077618,
+                    0.43476855801094355,
+                ],
+            ),
+            (
+                "e",
+                "f",
+                [
+                    0.08519341627411214,
+                    -0.21820466927246485,
+                    -0.49430885607234565,
+                ],
+                [
+                    0.5030721633460956,
+                    0.42228251371020586,
+                    0.05757558742063205,
+                    0.017069735523066495,
+                ],
+            ),
+        ];
+
+        // Second set of transforms at t=1.0
+        let transforms_t1 = vec![
+            (
+                "a",
+                "b",
+                [-0.2577564261850547, 0.7493551580360949, 0.9508883926449649],
+                [
+                    0.22516451641196783,
+                    0.39948597131211394,
+                    0.2540343540211825,
+                    0.12131515825473572,
+                ],
+            ),
+            (
+                "b",
+                "c",
+                [
+                    0.8409405814571027,
+                    -0.9879602392577504,
+                    -0.13140102332772097,
+                ],
+                [
+                    0.1398908842037251,
+                    0.2758514837076157,
+                    0.24490871323462493,
+                    0.33934891885403434,
+                ],
+            ),
+            (
+                "c",
+                "d",
+                [
+                    0.22500109579960625,
+                    -0.1414475909286277,
+                    -0.14392029811070084,
+                ],
+                [
+                    0.19694092483717301,
+                    0.27122448763510776,
+                    0.4097865936798704,
+                    0.12204799384784887,
+                ],
+            ),
+            (
+                "d",
+                "e",
+                [
+                    -0.20684779237257978,
+                    -0.7643987654163593,
+                    -0.6253015724407152,
+                ],
+                [
+                    0.27849097201454626,
+                    0.15911896201926773,
+                    0.19901604722897315,
+                    0.3633740187372129,
+                ],
+            ),
+            (
+                "e",
+                "f",
+                [-0.09213549320472025, 0.7601862256435243, -0.84895940549366],
+                [
+                    0.002094505867313596,
+                    0.13339467043347925,
+                    0.22297487081296374,
+                    0.6415359528862433,
+                ],
+            ),
+        ];
+
+        // Add transforms at t=0.0
+        for (source, target, translation, rotation) in transforms_t0 {
+            let stamped_isometry = StampedIsometry {
+                isometry: Isometry3::from_parts(
+                    nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation[3],
+                        rotation[0],
+                        rotation[1],
+                        rotation[2],
+                    )),
+                ),
+                stamp: 0.0,
+            };
+            buffer_tree.update(
+                source.to_string(),
+                target.to_string(),
+                stamped_isometry,
+                TransformType::Dynamic,
+            );
+        }
+
+        // Add transforms at t=1.0
+        for (source, target, translation, rotation) in transforms_t1 {
+            let stamped_isometry = StampedIsometry {
+                isometry: Isometry3::from_parts(
+                    nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation[3],
+                        rotation[0],
+                        rotation[1],
+                        rotation[2],
+                    )),
+                ),
+                stamp: 1.0,
+            };
+            buffer_tree.update(
+                source.to_string(),
+                target.to_string(),
+                stamped_isometry,
+                TransformType::Dynamic,
+            );
+        }
+
+        // Look up transform at t=0.2
+        let result = buffer_tree
+            .lookup_transform("a".to_string(), "f".to_string(), 0.2)
+            .unwrap();
+
+        // Expected values
+        let expected_translation =
+            nalgebra::Vector3::new(-0.02688966809486315, 0.8302180267299373, 1.6491944090937691);
+        let expected_rotation =
+            nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                -0.23762484510717535,
+                0.7704449853702972,
+                -0.44625068910795557,
+                -0.38834170517242694,
+            ));
+
+        // Assert translation components
+        assert_relative_eq!(
+            result.isometry.translation.vector,
+            expected_translation,
+            epsilon = 1e-6
+        );
+
+        // Assert rotation components
+        assert_relative_eq!(result.isometry.rotation, expected_rotation, epsilon = 1e-6);
+        // Additional test cases at different timestamps
+        let test_cases = vec![
+            // a->f at t=0.2
+            (
+                0.2,
+                "a",
+                "f",
+                [-0.02688966809486315, 0.8302180267299373, 1.6491944090937691],
+                [
+                    -0.23762484510717535,
+                    0.7704449853702972,
+                    -0.44625068910795557,
+                    -0.38834170517242694,
+                ],
+            ),
+            // a->f at t=0.5
+            (
+                0.5,
+                "a",
+                "f",
+                [-0.7313014953477409, 0.8588360737131203, 1.3897218882465063],
+                [
+                    -0.20299191732296193,
+                    0.9561102276829774,
+                    0.10847159958471206,
+                    -0.1813323636450122,
+                ],
+            ),
+            // a->f at t=0.8
+            (
+                0.8,
+                "a",
+                "f",
+                [-1.5366396114062963, 0.5615052687815749, 1.2753385241243729],
+                [
+                    0.025710201700027795,
+                    0.8191599958838035,
+                    0.5182799902870279,
+                    0.2443393917080692,
+                ],
+            ),
+            // f->a at t=0.2
+            (
+                0.2,
+                "f",
+                "a",
+                [1.7623488465323582, 0.4146044950680975, 0.36339631387666715],
+                [
+                    0.23762484510717535,
+                    0.7704449853702972,
+                    -0.44625068910795557,
+                    -0.38834170517242694,
+                ],
+            ),
+            // // f->a at t=0.5
+            (
+                0.5,
+                "f",
+                "a",
+                [0.8453152942269395, 1.4598104847572575, 0.5984342964929825],
+                [
+                    0.20299191732296193,
+                    0.9561102276829774,
+                    0.10847159958471206,
+                    -0.1813323636450122,
+                ],
+            ),
+            // // f->a at t=0.8
+            (
+                0.8,
+                "f",
+                "a",
+                [-0.43273825025921875, 1.1678464326290772, 1.6588882210342657],
+                [
+                    -0.025710201700027795,
+                    0.8191599958838035,
+                    0.5182799902870279,
+                    0.2443393917080692,
+                ],
+            ),
+        ];
+
+        // Test each case
+        for (time, source, target, translation, rotation) in test_cases {
+            let result = buffer_tree
+                .lookup_transform(source.to_string(), target.to_string(), time)
+                .unwrap();
+
+            let expected_translation =
+                nalgebra::Vector3::new(translation[0], translation[1], translation[2]);
+            let expected_rotation =
+                nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                    rotation[0], // w
+                    rotation[1], // x
+                    rotation[2], // y
+                    rotation[3], // z
+                ));
+
+            // Assert translation components
+            assert_relative_eq!(
+                result.isometry.translation.vector,
+                expected_translation,
+                epsilon = 1e-6,
+                max_relative = 1e-6
+            );
+
+            // Assert rotation components
+            assert_relative_eq!(
+                result.isometry.rotation,
+                expected_rotation,
+                epsilon = 1e-6,
+                max_relative = 1e-6
+            );
         }
     }
 }

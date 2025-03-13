@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use clap::{Parser, Subcommand};
 use log::{error, info};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion};
@@ -89,14 +91,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             qw,
         } => {
             let pub_client = PublisherClient::new()?;
+            thread::sleep(Duration::from_secs(1));
             let translation = Translation3::new(*tx, *ty, *tz);
             let rotation = UnitQuaternion::new_normalize(Quaternion::new(*qx, *qy, *qz, *qw));
             pub_client.send_transform(from, to, translation, rotation, 1.0, TransformType::Static);
-            info!(
+            println!(
                 "Publishing transform from {} to {} with translation {:?} and rotation {:?}",
                 from, to, translation, rotation
             );
-            // TODO: Implement transform publishing
+            thread::sleep(Duration::from_secs(1));
         }
         Commands::Visualize => {
             info!("Starting visualization...");
