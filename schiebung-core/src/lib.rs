@@ -187,67 +187,67 @@ impl BufferTree {
     /// Panics if the graph becomes cyclic
     pub fn update(
         &mut self,
-        source: String,
-        target: String,
+        from: String,
+        to: String,
         stamped_isometry: StampedIsometry,
         kind: TransformType,
     ) -> Result<(), TfError> {
-        let source = self.index.index(source);
-        let target = self.index.index(target);
+        let from_idx = self.index.index(from);
+        let to_idx = self.index.index(to);
 
-        if !self.graph.contains_node(source) {
-            self.graph.add_node(source);
+        if !self.graph.contains_node(from_idx) {
+            self.graph.add_node(from_idx);
         }
-        if !self.graph.contains_node(target) {
-            self.graph.add_node(target);
+        if !self.graph.contains_node(to_idx) {
+            self.graph.add_node(to_idx);
         }
 
-        if !self.graph.contains_edge(source, target) {
+        if !self.graph.contains_edge(from_idx, to_idx) {
             self.graph.add_edge(
-                source,
-                target,
+                from_idx,
+                to_idx,
                 TransformHistory::new(kind, self.config.buffer_window),
             );
             if is_cyclic_undirected(&self.graph)
                 || self
                     .graph
-                    .neighbors_directed(target, petgraph::Direction::Incoming)
+                    .neighbors_directed(to_idx, petgraph::Direction::Incoming)
                     .count()
                     > 1
             {
                 // Remove the edge and nodes if they have no other edges
-                self.graph.remove_edge(source, target);
+                self.graph.remove_edge(from_idx, to_idx);
                 if self
                     .graph
-                    .neighbors_directed(target, petgraph::Direction::Incoming)
+                    .neighbors_directed(to_idx, petgraph::Direction::Incoming)
                     .count()
                     < 1
                     && self
                         .graph
-                        .neighbors_directed(target, petgraph::Direction::Outgoing)
+                        .neighbors_directed(to_idx, petgraph::Direction::Outgoing)
                         .count()
                         < 1
                 {
-                    self.graph.remove_node(target);
+                    self.graph.remove_node(to_idx);
                 }
                 if self
                     .graph
-                    .neighbors_directed(source, petgraph::Direction::Incoming)
+                    .neighbors_directed(from_idx, petgraph::Direction::Incoming)
                     .count()
                     < 1
                     && self
                         .graph
-                        .neighbors_directed(source, petgraph::Direction::Outgoing)
+                        .neighbors_directed(from_idx, petgraph::Direction::Outgoing)
                         .count()
                         < 1
                 {
-                    self.graph.remove_node(source);
+                    self.graph.remove_node(from_idx);
                 }
                 return Err(TfError::InvalidGraph);
             }
         }
         self.graph
-            .edge_weight_mut(source, target)
+            .edge_weight_mut(from_idx, to_idx)
             .unwrap()
             .update(stamped_isometry);
         Ok(())
@@ -308,21 +308,21 @@ impl BufferTree {
     /// NOTE: This might give you outdated transforms!
     pub fn lookup_latest_transform(
         &mut self,
-        source: String,
-        target: String,
+        from: String,
+        to: String,
     ) -> Result<StampedIsometry, TfError> {
         let mut isometry = Isometry3::identity();
-        if !self.index.contains(&source) || !self.index.contains(&target) {
+        if !self.index.contains(&from) || !self.index.contains(&to) {
             return Err(TfError::CouldNotFindTransform);
         }
-        for pair in self.find_path(source, target).unwrap().windows(2) {
-            let source_idx = pair[0];
-            let target_idx = pair[1];
+        for pair in self.find_path(from, to).unwrap().windows(2) {
+            let from_idx = pair[0];
+            let to_idx = pair[1];
 
-            if self.graph.contains_edge(source_idx, target_idx) {
+            if self.graph.contains_edge(from_idx, to_idx) {
                 isometry *= self
                     .graph
-                    .edge_weight(source_idx, target_idx)
+                    .edge_weight(from_idx, to_idx)
                     .unwrap()
                     .history
                     .back()
@@ -331,7 +331,7 @@ impl BufferTree {
             } else {
                 isometry *= self
                     .graph
-                    .edge_weight(target_idx, source_idx)
+                    .edge_weight(to_idx, from_idx)
                     .unwrap()
                     .history
                     .back()
@@ -354,28 +354,28 @@ impl BufferTree {
     /// The interpolation is weighted with the distance to the time stamps
     pub fn lookup_transform(
         &mut self,
-        source: String,
-        target: String,
+        from: String,
+        to: String,
         time: f64,
     ) -> Result<StampedIsometry, TfError> {
         let mut isometry = Isometry3::identity();
-        if !self.index.contains(&source) || !self.index.contains(&target) {
+        if !self.index.contains(&from) || !self.index.contains(&to) {
             return Err(TfError::CouldNotFindTransform);
         }
-        for pair in self.find_path(source, target).unwrap().windows(2) {
-            let source_idx = pair[0];
-            let target_idx = pair[1];
+        for pair in self.find_path(from, to).unwrap().windows(2) {
+            let from_idx = pair[0];
+            let to_idx = pair[1];
 
-            if self.graph.contains_edge(source_idx, target_idx) {
+            if self.graph.contains_edge(from_idx, to_idx) {
                 isometry *= self
                     .graph
-                    .edge_weight(source_idx, target_idx)
+                    .edge_weight(from_idx, to_idx)
                     .unwrap()
                     .interpolate_isometry_at_time(time)?;
             } else {
                 isometry *= self
                     .graph
-                    .edge_weight(target_idx, source_idx)
+                    .edge_weight(to_idx, from_idx)
                     .unwrap()
                     .interpolate_isometry_at_time(time)?
                     .inverse();

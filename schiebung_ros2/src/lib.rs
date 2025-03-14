@@ -110,8 +110,8 @@ impl RosBuffer {
 
     pub fn lookup_transform(
         &self,
-        source: &str,
-        target: &str,
+        from: &str,
+        to: &str,
         stamp: f64,
     ) -> Result<StampedIsometry, TfError> {
         self.buffer
@@ -121,8 +121,8 @@ impl RosBuffer {
     }
     pub fn lookup_latest_transform(
         &self,
-        source: &str,
-        target: &str,
+        from: &str,
+        to: &str,
     ) -> Result<StampedIsometry, TfError> {
         self.buffer
             .lock()
