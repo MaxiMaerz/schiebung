@@ -5,5 +5,5 @@ members = [
     "schiebung-core",
     "schiebung-client",
     "schiebung-server",
-    "schiebung_ros2",
+    # "schiebung_ros2",
 ]
