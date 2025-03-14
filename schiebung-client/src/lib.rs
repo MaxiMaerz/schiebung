@@ -6,6 +6,7 @@ use iceoryx2::prelude::*;
 use log::info;
 use nalgebra::{Translation3, UnitQuaternion};
 use schiebung_core::types::{NewTransform, TransformRequest, TransformResponse, TransformType};
+use schiebung_server::config::get_config;
 use schiebung_server::types::PubSubEvent;
 
 fn encode_char_array(input: &String) -> [char; 100] {
@@ -30,14 +31,16 @@ pub struct ListenerClient {
 
 impl ListenerClient {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let config = get_config()?;
         let node = NodeBuilder::new().create::<ipc::Service>()?;
 
+        info!("max_subscribers: {}", config.max_subscribers);
         let listener_name = &"tf_request".try_into()?;
         let publish_service = node
             .service_builder(listener_name)
             .publish_subscribe::<TransformRequest>()
-            .max_publishers(10)
-            .max_subscribers(10)
+            .max_publishers(config.max_subscribers)
+            .max_subscribers(config.max_subscribers)
             .open_or_create()?;
         let publisher = publish_service
             .publisher_builder()
@@ -46,7 +49,7 @@ impl ListenerClient {
         let publish_service_notifier = node
             .service_builder(listener_name)
             .event()
-            .max_listeners(10)
+            .max_listeners(config.max_subscribers)
             .open_or_create()?;
         let publish_service_notifier = publish_service_notifier.notifier_builder().create()?;
         let id = publisher.id().value();
@@ -55,13 +58,14 @@ impl ListenerClient {
         let subscribe_service = node
             .service_builder(&service_name)
             .publish_subscribe::<TransformResponse>()
-            .max_publishers(10)
-            .max_subscribers(10)
+            .max_publishers(1)
+            .max_subscribers(1)
             .open_or_create()?;
         let listener = subscribe_service.subscriber_builder().create()?;
         let notifier_service = node
             .service_builder(&service_name)
             .event()
+            .max_listeners(1)
             .open_or_create()?;
         let tf_listener_event_listener = notifier_service.listener_builder().create()?;
 
@@ -141,16 +145,20 @@ pub struct PublisherClient {
 
 impl PublisherClient {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let config = get_config()?;
         let node = NodeBuilder::new().create::<ipc::Service>()?;
         let publish_service = node
             .service_builder(&"new_tf".try_into()?)
             .publish_subscribe::<NewTransform>()
+            .max_publishers(config.max_subscribers)
+            .max_subscribers(config.max_subscribers)
             .open_or_create()?;
         let publisher = publish_service.publisher_builder().create()?;
 
         let event_service = node
             .service_builder(&"new_tf".try_into().unwrap())
             .event()
+            .max_listeners(config.max_subscribers)
             .open_or_create()?;
         let publish_service_notifier = event_service.notifier_builder().create()?;
         let event_listener = event_service.listener_builder().create()?;

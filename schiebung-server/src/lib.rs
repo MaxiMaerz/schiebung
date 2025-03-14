@@ -18,6 +18,8 @@ use schiebung_core::{
 
 pub mod types;
 use crate::types::PubSubEvent;
+pub mod config;
+use crate::config::get_config;
 
 fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
@@ -39,10 +41,13 @@ impl TFPublisher {
         let publisher_service = node
             .service_builder(&service_name)
             .publish_subscribe::<TransformResponse>()
+            .max_publishers(1)
+            .max_subscribers(1)
             .open_or_create()?;
         let notifier_service = node
             .service_builder(&service_name)
             .event()
+            .max_listeners(1)
             .open_or_create()?;
         let publisher = publisher_service.publisher_builder().create()?;
         let notifier = notifier_service.notifier_builder().create()?;
@@ -134,6 +139,7 @@ impl SynchronousMultiplexing for Server {}
 
 impl Server {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let config = get_config()?;
         let buffer = Arc::new(Mutex::new(BufferTree::new()));
         let node = Arc::new(NodeBuilder::new().create::<ipc::Service>()?);
 
@@ -142,13 +148,14 @@ impl Server {
         let service = node
             .service_builder(&listener_name)
             .publish_subscribe::<TransformRequest>()
-            .max_publishers(10)
-            .max_subscribers(10)
+            .max_publishers(config.max_subscribers)
+            .max_subscribers(config.max_subscribers)
             .open_or_create()?;
         let subscriber = service.subscriber_builder().create()?;
         let event_service = node
             .service_builder(&listener_name)
             .event()
+            .max_listeners(config.max_subscribers)
             .open_or_create()?;
         let request_listener_notifier = event_service.listener_builder().create()?;
 
@@ -157,12 +164,15 @@ impl Server {
         let tf_service = node
             .service_builder(&publisher_name)
             .publish_subscribe::<NewTransform>()
+            .max_publishers(config.max_subscribers)
+            .max_subscribers(config.max_subscribers)
             .open_or_create()
             .unwrap();
         let transform_listener = tf_service.subscriber_builder().create()?;
         let event_notifier = node
             .service_builder(&publisher_name)
             .event()
+            .max_listeners(config.max_subscribers)
             .open_or_create()?;
         let notifier = event_notifier.notifier_builder().create()?;
         let transform_listener_notifier = event_notifier.listener_builder().create()?;
@@ -171,6 +181,7 @@ impl Server {
         let visualizer_event_service = node
             .service_builder(&"visualizer".try_into()?)
             .event()
+            .max_listeners(config.max_subscribers)
             .open_or_create()?;
         let visualizer_listener = visualizer_event_service.listener_builder().create()?;
 
