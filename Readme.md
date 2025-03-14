@@ -41,9 +41,6 @@ This library is still under development and the API is not considered stable yet
 | schiebung-client    | Yes      | No        |
 | schiebung-server    | Yes      | No        |
 
-The core implementation of the Buffer is tested, we are still missing a representative test for the interpolation / time travel feature.
-It yields the same result as the ROS-implementation.
-
 The client and server are tested for correct results, however until iceoryx2 merges the request/response functionality heavy traffic may cause issues.
 
 ## Installation
@@ -100,13 +97,22 @@ Now the server is running we need to provide transforms, this can be done manual
 Update the server with a new static transform:
 
 ```bash
-cargo run --bin schiebung-client update --from a --to b --tx 0 --ty 0 --tz 0 --qx 0 --qy 0 --qz 0 --qw 1
+cargo run --bin schiebung-client update --from a --to b --tx 1 --ty 0 --tz 0 --qx 0 --qy 0 --qz 0 --qw 1
+cargo run --bin schiebung-client update --from b --to c --tx 0 --ty 1 --tz 0 --qx 0 --qy 0 --qz 0 --qw 1
+cargo run --bin schiebung-client update --from c --to d --tx 0 --ty 0 --tz 1 --qx 0 --qy 0 --qz 0 --qw 1
+cargo run --bin schiebung-client update --from b --to x --tx 1 --ty 1 --tz 1 --qx 0 --qy 0 --qz 0 --qw 1
 ```
 
 Request a transform from the server:
 
 ```bash
-cargo run --bin schiebung-client request --from a --to b --time 1.0
+cargo run --bin schiebung-client request --from a --to d
+Transform:
+a -> d:
+stamp: 0,
+translation: 1.000, -1.000, 1.000,
+rotation (xyzw): 0.000, 0.000, -1.000, -0.000,
+rotation (rpy): -0.000, -0.000, 3.142
 ```
 
 Visualize the transforms:
@@ -116,4 +122,6 @@ The default save path is your home directory and may be changed within the serve
 ```bash
 cargo run --bin schiebung-client visualize
 ```
+
+![Graph](./resources/graph.png)
 
