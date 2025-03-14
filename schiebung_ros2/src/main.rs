@@ -1,3 +1,4 @@
+use log::{error, info};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 use rclrs::*;
 use schiebung_client::PublisherClient;
@@ -7,10 +8,6 @@ use std::{
     time::Duration,
 };
 use tf2_msgs::msg::TFMessage;
-use log::{info, error};
-
-use schiebung_ros2::RosBuffer;
-
 
 /// This node relays the TF data from the ROS2 master to the schiebung server.
 pub struct TfRelay {
@@ -38,8 +35,8 @@ impl TfRelay {
         )?;
         let _static_tf_subscriber = node.create_subscription::<TFMessage, _>(
             "/tf_static",
-            QoSProfile{
-                history: QoSHistoryPolicy::KeepLast {depth: 1},
+            QoSProfile {
+                history: QoSHistoryPolicy::KeepLast { depth: 1 },
                 reliability: QoSReliabilityPolicy::Reliable,
                 durability: QoSDurabilityPolicy::TransientLocal,
                 deadline: QoSDuration::Infinite,
@@ -67,7 +64,9 @@ impl TfRelay {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut executor = Context::default_from_env()?.create_basic_executor();
     let subscription = Arc::new(TfRelay::new(&executor)?);
-    env_logger::Builder::new().filter(None, log::LevelFilter::Info).init();
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Info)
+        .init();
 
     info!("Waiting for tf data to become available");
     loop {
