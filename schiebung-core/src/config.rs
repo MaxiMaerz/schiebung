@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct BufferConfig {
-    pub max_transform_history: usize,
+    pub buffer_window: f64,
     pub save_path: String,
 }
 
 impl Default for BufferConfig {
     fn default() -> Self {
         BufferConfig {
-            max_transform_history: 1000,
+            buffer_window: 120.0,
             save_path: home_dir().unwrap().display().to_string(),
         }
     }

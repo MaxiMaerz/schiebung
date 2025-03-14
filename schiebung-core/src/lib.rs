@@ -39,7 +39,6 @@ use std::fs::File;
 use std::io::Write;
 use std::process::Command;
 
-use log::info;
 use nalgebra::geometry::Isometry3;
 use petgraph::algo::is_cyclic_undirected;
 use petgraph::graphmap::DiGraphMap;
@@ -70,21 +69,23 @@ pub enum TfError {
 struct TransformHistory {
     history: VecDeque<StampedIsometry>,
     kind: TransformType,
-    max_history: usize,
+    buffer_window: f64,
 }
 
 impl TransformHistory {
-    pub fn new(kind: TransformType, max_history: usize) -> Self {
+    pub fn new(kind: TransformType, buffer_window: f64) -> Self {
         TransformHistory {
             history: VecDeque::new(),
             kind,
-            max_history: max_history,
+            buffer_window,
         }
     }
 
     pub fn update(&mut self, stamped_isometry: StampedIsometry) {
         self.history.push_back(stamped_isometry);
-        if self.history.len() > self.max_history {
+        if (self.history.back().unwrap().stamp - self.history.front().unwrap().stamp)
+            > self.buffer_window
+        {
             self.history.pop_front();
         }
     }
@@ -205,7 +206,7 @@ impl BufferTree {
             self.graph.add_edge(
                 source,
                 target,
-                TransformHistory::new(kind, self.config.max_transform_history),
+                TransformHistory::new(kind, self.config.buffer_window),
             );
             if is_cyclic_undirected(&self.graph)
                 || self
@@ -257,7 +258,7 @@ impl BufferTree {
     /// We have to consider that "form" and "to" are on different branches therefore we
     /// traverse the tree upwards from both nodes until we either hit the other node or the root
     /// Afterwards we prune the leftover path above the connection point
-    pub fn find_path(&mut self, from: String, to: String) -> Option<Vec<usize>> {
+    fn find_path(&mut self, from: String, to: String) -> Option<Vec<usize>> {
         let mut path_1 = Vec::new();
         let mut path_2 = Vec::new();
         let mut from_idx = self.index.index(from);
@@ -434,7 +435,7 @@ impl BufferTree {
     /// Runs graphiz to generate the PDF, fails if graphiz is not installed
     pub fn save_visualization(&self) -> std::io::Result<()> {
         let filename = &self.config.save_path;
-        info!("Saving visualization to {}/graph.(dot/pdf)", filename);
+        println!("Saving visualization to {}/graph.(dot/pdf)", filename);
         // Save DOT file
         let dot_content = self.visualize();
         let dot_filename = format!("{}/graph.dot", filename);
@@ -1581,5 +1582,55 @@ mod tests {
                 max_relative = 1e-6
             );
         }
+    }
+
+    #[test]
+    fn test_transform_history_buffer_window() {
+        let buffer_window = 1.0; // 1 second window
+        let mut history = TransformHistory::new(TransformType::Dynamic, buffer_window);
+
+        // Add transforms at different times
+        let transforms = vec![
+            (0.0, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            (0.2, [0.2, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            (0.4, [0.4, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            (0.6, [0.6, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            (0.8, [0.8, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            (1.2, [1.2, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]), // This should cause older transforms to be removed
+        ];
+
+        // Add all transforms
+        for (time, translation, rotation) in transforms {
+            let stamped_isometry = StampedIsometry {
+                isometry: Isometry3::from_parts(
+                    nalgebra::Translation3::new(translation[0], translation[1], translation[2]),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation[3],
+                        rotation[0],
+                        rotation[1],
+                        rotation[2],
+                    )),
+                ),
+                stamp: time,
+            };
+            history.update(stamped_isometry);
+        }
+
+        // Check that oldest transforms (0.0, 0.2) were removed due to buffer window
+        assert!(history.history.len() < 6);
+        assert!(history.history.front().unwrap().stamp >= 0.2);
+
+        // Check that newest transforms are still present
+        assert_eq!(history.history.back().unwrap().stamp, 1.2);
+
+        // Verify interpolation still works within the valid time range
+        let result = history.interpolate_isometry_at_time(1.0);
+        assert!(result.is_ok());
+        let interpolated = result.unwrap();
+        assert_relative_eq!(interpolated.translation.vector[0], 1.0, epsilon = 1e-6);
+
+        // Verify interpolation fails for times outside the buffer window
+        let result = history.interpolate_isometry_at_time(0.1);
+        assert!(matches!(result, Err(TfError::AttemptedLookupInPast)));
     }
 }
