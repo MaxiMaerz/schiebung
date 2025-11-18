@@ -2,8 +2,9 @@
 resolver = "2"
 
 members = [
-    "schiebung-core",
+    "schiebung-core-rs",
+    "schiebung-core-py",
     "schiebung-client",
     "schiebung-server",
-    # "schiebung_ros2",
 ]
+

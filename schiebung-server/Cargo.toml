@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 iceoryx2 = "0.5.0"
-schiebung-core = {path = "../schiebung-core"}
+schiebung = {path = "../schiebung-core-rs"}
 env_logger = "0.11.7"
 log = "0.4.25"
 nalgebra = "0.33.2"

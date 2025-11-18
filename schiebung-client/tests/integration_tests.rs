@@ -8,7 +8,7 @@ use std::{thread, time::Duration};
 mod common;
 const TIMEOUT: Duration = Duration::from_secs(3);
 use approx::assert_relative_eq;
-use schiebung_core::types::{StampedIsometry, TransformType};
+use schiebung::types::{StampedIsometry, TransformType};
 
 #[test]
 /// This test checks if a single client can receive a transform

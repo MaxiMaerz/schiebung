@@ -1,0 +1,17 @@
+[package]
+name = "schiebung-py"
+version = "0.1.0"
+edition = "2021"
+keywords = ["transform", "tf", "tf2"]
+categories = ["robotics"]
+
+[dependencies]
+schiebung = { path = "../schiebung-core-rs" }
+pyo3 = { version = ">=0.26.0", features = ["abi3-py312"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]

@@ -10,8 +10,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use schiebung_core::BufferTree;
-use schiebung_core::{
+use schiebung::BufferTree;
+use schiebung::{
     types::{NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType},
     TfError,
 };
