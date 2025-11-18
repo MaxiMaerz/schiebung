@@ -6,7 +6,7 @@ It provides a Python interface to the core functionality of the Schiebung librar
 ## Installation
 
 ```bash
-maturin build
+pip install schiebung
 ```
 
 ## Usage

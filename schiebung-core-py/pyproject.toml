@@ -16,9 +16,9 @@ authors = [
 keywords = ["robotics", "transform"]
 
 [project.urls]
-Homepage = "https://github.com/schiebung/schiebung"
-Repository = "https://github.com/schiebung/schiebung"
-"Bug Tracker" = "https://github.com/schiebung/schiebung/issues"
+Homepage = "https://github.com/MaxiMaerz/schiebung/"
+Repository = "https://github.com/MaxiMaerz/schiebung/"
+"Bug Tracker" = "https://github.com/MaxiMaerz/schiebung/issues"
 
 [tool.maturin]
 module-name = "schiebung"
