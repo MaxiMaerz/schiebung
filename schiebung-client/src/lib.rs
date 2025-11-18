@@ -5,7 +5,7 @@ use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
 use log::info;
 use nalgebra::{Translation3, UnitQuaternion};
-use schiebung_core::types::{NewTransform, TransformRequest, TransformResponse, TransformType};
+use schiebung::types::{NewTransform, TransformRequest, TransformResponse, TransformType};
 use schiebung_server::config::get_config;
 use schiebung_server::types::PubSubEvent;
 

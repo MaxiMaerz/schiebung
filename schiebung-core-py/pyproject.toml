@@ -1,0 +1,41 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "schiebung"
+version = "0.1.0"
+description = "Core transform buffer functionality for robotics applications"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Schiebung Team", email = "team@schiebung.dev"},
+]
+
+keywords = ["robotics", "transform", "tf", "tf2", "geometry"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/schiebung/schiebung"
+Repository = "https://github.com/schiebung/schiebung"
+Documentation = "https://schiebung.readthedocs.io"
+"Bug Tracker" = "https://github.com/schiebung/schiebung/issues"
+
+[tool.maturin]
+module-name = "schiebung"
+manifest-path = "Cargo.toml"
+bindings = "pyo3"
