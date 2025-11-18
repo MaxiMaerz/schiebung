@@ -46,6 +46,8 @@ The client and server are tested for correct results, however until iceoryx2 mer
 
 ## Usage
 
-Rust core: [README](schiebung-core/README.md)
-Python bindings: [README](schiebung-py/README.md)
+Rust core: [README](schiebung-core-rs/README.md)
+
+Python bindings: [README](schiebung-core-py/README.md)
+
 Client-Server: [README](schiebung-client/README.md)
