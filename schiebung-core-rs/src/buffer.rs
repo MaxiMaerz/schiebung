@@ -46,7 +46,7 @@ impl TransformHistory {
             }
             TransformType::Dynamic => {
                 if self.history.len() < 2 {
-                    return Err(TfError::CouldNotFindTransform); // Not enough elements
+                    return Err(TfError::CouldNotFindTransform(format!("Not enough history to interpolate. Len: {}", self.history.len()))); // Not enough elements
                 }
 
                 let history = &self.history;
@@ -59,10 +59,10 @@ impl TransformHistory {
                     Err(i) => {
                         // Not found, i is the insertion point
                         if i == 0 {
-                            return Err(TfError::AttemptedLookupInPast);
+                            return Err(TfError::AttemptedLookupInPast(format!("Time {} is before the oldest transform at {}", time, history[0].stamp)));
                         }
                         if i >= history.len() {
-                            return Err(TfError::AttemptedLookUpInFuture);
+                            return Err(TfError::AttemptedLookUpInFuture(format!("Time {} is after the newest transform at {}", time, history[history.len()-1].stamp)));
                         } else {
                             let weight = (time - history[i - 1].stamp)
                                 / (history[i].stamp - history[i - 1].stamp);
@@ -192,7 +192,7 @@ impl BufferTree {
                 {
                     self.graph.remove_node(from_idx);
                 }
-                return Err(TfError::InvalidGraph);
+                return Err(TfError::InvalidGraph(format!("Graph cycle or multiple parents detected when adding edge {} -> {}", from_idx, to_idx)));
             }
         }
         self.graph
@@ -260,17 +260,20 @@ impl BufferTree {
         from: String,
         to: String,
     ) -> Result<StampedIsometry, TfError> {
-        if !self.index.contains(&from) || !self.index.contains(&to) {
-            return Err(TfError::CouldNotFindTransform);
+        if !self.index.contains(&from) {
+            return Err(TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)));
+        }
+        if !self.index.contains(&to) {
+            return Err(TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)));
         }
         
-        let path = self.find_path(from, to);
+        let path = self.find_path(from.clone(), to.clone());
         match path {
             Some(path) => {
                 let isometry = self.compute_transform_along_path(&path, |history| {
                     let latest_transform = history.history
                         .back()
-                        .ok_or(TfError::CouldNotFindTransform)?;
+                        .ok_or(TfError::CouldNotFindTransform("Empty history in edge".to_string()))?;
                     Ok(latest_transform.isometry)
                 })?;
                 
@@ -279,7 +282,7 @@ impl BufferTree {
                     stamp: 0.0,
                 })
             }
-            None => Err(TfError::CouldNotFindTransform),
+            None => Err(TfError::CouldNotFindTransform(format!("Could not find path between '{}' and '{}'", from, to))),
         }
     }
 
@@ -295,11 +298,14 @@ impl BufferTree {
         to: String,
         time: f64,
     ) -> Result<StampedIsometry, TfError> {
-        if !self.index.contains(&from) || !self.index.contains(&to) {
-            return Err(TfError::CouldNotFindTransform);
+        if !self.index.contains(&from) {
+            return Err(TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)));
+        }
+        if !self.index.contains(&to) {
+            return Err(TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)));
         }
         
-        let path = self.find_path(from, to);
+        let path = self.find_path(from.clone(), to.clone());
         match path {
             Some(path) => {
                 let isometry = self.compute_transform_along_path(&path, |history| {
@@ -311,7 +317,7 @@ impl BufferTree {
                     stamp: time,
                 })
             }
-            None => Err(TfError::CouldNotFindTransform),
+            None => Err(TfError::CouldNotFindTransform(format!("Could not find path between '{}' and '{}'", from, to))),
         }
     }
 
@@ -406,11 +412,11 @@ impl BufferTree {
 
             if self.graph.contains_edge(from_idx, to_idx) {
                 let edge_weight = self.graph.edge_weight(from_idx, to_idx)
-                    .ok_or(TfError::CouldNotFindTransform)?;
+                    .ok_or(TfError::CouldNotFindTransform(format!("Edge transform not found checking edge {} -> {}", from_idx, to_idx)))?;
                 isometry *= transform_getter(edge_weight)?;
             } else {
                 let edge_weight = self.graph.edge_weight(to_idx, from_idx)
-                    .ok_or(TfError::CouldNotFindTransform)?;
+                    .ok_or(TfError::CouldNotFindTransform(format!("Edge transform not found checking edge {} -> {}", to_idx, from_idx)))?;
                 isometry *= transform_getter(edge_weight)?.inverse();
             }
         }
@@ -512,6 +518,7 @@ mod tests {
             TransformType::Static,
         );
         assert!(result.is_err());
+        assert!(matches!(result, Err(TfError::InvalidGraph(_))));
     }
 
     #[test]
@@ -539,6 +546,7 @@ mod tests {
             TransformType::Static,
         );
         assert!(result.is_err());
+        assert!(matches!(result, Err(TfError::InvalidGraph(_))));
     }
 
     #[test]
@@ -941,31 +949,31 @@ mod tests {
             "shoulder_link".to_string(),
             0.,
         ) {
-            Err(TfError::AttemptedLookupInPast) => {
+            Err(TfError::AttemptedLookupInPast(_)) => {
                 // The function returned the expected error variant
                 assert!(true);
             }
-            _ => {
+            err => {
                 // The function did not return the expected error variant
-                assert!(false, "Expected TfError::AttemptedLookupInPast");
+                assert!(false, "Expected TfError::AttemptedLookupInPast, got {:?}", err);
             }
         }
         match buffer_tree.lookup_transform(
             "base_link_inertia".to_string(),
             "shoulder_link".to_string(),
-            3.,
+            3e12,
         ) {
-            Err(TfError::AttemptedLookUpInFuture) => {
+            Err(TfError::AttemptedLookUpInFuture(_)) => {
                 // The function returned the expected error variant
                 assert!(true);
             }
-            _ => {
+            err => {
                 // The function did not return the expected error variant
-                assert!(false, "Expected TfError::AttemptedLookUpInFuture");
+                assert!(false, "Expected TfError::AttemptedLookUpInFuture, got {:?}", err);
             }
         }
         match buffer_tree.lookup_transform("XXXXX".to_string(), "shoulder_link".to_string(), 3.) {
-            Err(TfError::CouldNotFindTransform) => {
+            Err(TfError::CouldNotFindTransform(_)) => {
                 // The function returned the expected error variant
                 assert!(true);
             }
@@ -1481,12 +1489,12 @@ mod tests {
         // Try to lookup transform between disconnected frames
         let result = buffer_tree.lookup_latest_transform("A".to_string(), "C".to_string());
         assert!(result.is_err());
-        assert!(matches!(result, Err(TfError::CouldNotFindTransform)));
+        assert!(matches!(result, Err(TfError::CouldNotFindTransform(_))));
 
         // Try to lookup transform between non-existent frames
         let result = buffer_tree.lookup_latest_transform("X".to_string(), "Y".to_string());
         assert!(result.is_err());
-        assert!(matches!(result, Err(TfError::CouldNotFindTransform)));
+        assert!(matches!(result, Err(TfError::CouldNotFindTransform(_))));
     }
 
     #[test]
@@ -1529,6 +1537,6 @@ mod tests {
 
         // Verify interpolation fails for times outside the buffer window
         let result = history.interpolate_isometry_at_time(0.1);
-        assert!(matches!(result, Err(TfError::AttemptedLookupInPast)));
+        assert!(matches!(result, Err(TfError::AttemptedLookupInPast(_))));
     }
 }
