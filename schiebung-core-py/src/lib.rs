@@ -9,8 +9,8 @@ use ::schiebung::{
 };
 
 /// Python wrapper for TfError
-#[derive(Clone, Debug)]
-#[pyclass]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[pyclass(eq, eq_int)]
 pub enum TfError {
     /// Error due to looking up too far in the past. I.E the information is no longer available in the TF Cache.
     AttemptedLookupInPast,
@@ -25,10 +25,27 @@ pub enum TfError {
 impl From<CoreTfError> for TfError {
     fn from(err: CoreTfError) -> Self {
         match err {
-            CoreTfError::AttemptedLookupInPast => TfError::AttemptedLookupInPast,
-            CoreTfError::AttemptedLookUpInFuture => TfError::AttemptedLookUpInFuture,
-            CoreTfError::CouldNotFindTransform => TfError::CouldNotFindTransform,
-            CoreTfError::InvalidGraph => TfError::InvalidGraph,
+            CoreTfError::AttemptedLookupInPast(_) => TfError::AttemptedLookupInPast,
+            CoreTfError::AttemptedLookUpInFuture(_) => TfError::AttemptedLookUpInFuture,
+            CoreTfError::CouldNotFindTransform(_) => TfError::CouldNotFindTransform,
+            CoreTfError::InvalidGraph(_) => TfError::InvalidGraph,
+        }
+    }
+}
+
+fn core_err_to_pyerr(err: CoreTfError) -> PyErr {
+    match &err {
+        CoreTfError::AttemptedLookupInPast(msg) => {
+            PyValueError::new_err(format!("TfError.AttemptedLookupInPast: {}", msg))
+        }
+        CoreTfError::AttemptedLookUpInFuture(msg) => {
+            PyValueError::new_err(format!("TfError.AttemptedLookUpInFuture: {}", msg))
+        }
+        CoreTfError::CouldNotFindTransform(msg) => {
+            PyValueError::new_err(format!("TfError.CouldNotFindTransform: {}", msg))
+        }
+        CoreTfError::InvalidGraph(msg) => {
+            PyValueError::new_err(format!("TfError.InvalidGraph: {}", msg))
         }
     }
 }
@@ -51,8 +68,8 @@ impl std::convert::From<TfError> for PyErr {
 }
 
 /// Python wrapper for TransformType
-#[derive(Clone, Copy, Debug)]
-#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[pyclass(eq, eq_int)]
 pub enum TransformType {
     /// Changes over time
     Dynamic = 0,
@@ -181,7 +198,7 @@ impl BufferTree {
         
         self.inner
             .update(from, to, core_stamped_isometry, kind.into())
-            .map_err(|e| TfError::from(e))?;
+            .map_err(core_err_to_pyerr)?;
         Ok(())
     }
 
@@ -216,7 +233,7 @@ impl BufferTree {
         let result = self.inner.lookup_transform(from, to, time);
         match result {
             Ok(transform) => Ok(StampedIsometry::from(transform)),
-            Err(e) => Err(TfError::from(e).into()),
+            Err(e) => Err(core_err_to_pyerr(e)),
         }
     }
 
