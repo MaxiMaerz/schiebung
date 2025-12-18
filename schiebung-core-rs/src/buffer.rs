@@ -1,4 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
@@ -77,11 +78,20 @@ impl TransformHistory {
     }
 }
 
+/// Node representation with name and ancestors
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub name: String,
+    pub ancestors: Vec<String>,
+    pub ancestor_ids: Vec<usize>,
+}
+
 /// Need to index the strings via a hashmap
 /// DiGrapMap does not support string indexing
+/// We use FxHashMap to improve the lookup speed
 struct NodeIndex {
-    max_node_id: usize,
-    node_ids: HashMap<String, usize>,
+    node_map: FxHashMap<String, usize>,
+    nodes: Vec<Node>,
 }
 
 // DiGraphMap does not support strings and requires an external storage
@@ -89,25 +99,43 @@ struct NodeIndex {
 impl NodeIndex {
     pub fn new() -> Self {
         NodeIndex {
-            max_node_id: 0,
-            node_ids: HashMap::new(),
+            node_map: FxHashMap::default(),
+            nodes: Vec::new(),
         }
     }
 
-    pub fn index(&mut self, node: String) -> usize {
-        let ref mut max_node_id = self.max_node_id;
+    pub fn get(&self, node: &str) -> Option<usize> {
+        self.node_map.get(node).cloned()
+    }
 
-        let node_id = *self.node_ids.entry(node).or_insert_with(|| {
-            let node_id = *max_node_id;
-            *max_node_id += 1;
-            node_id
-        });
+    pub fn index(&mut self, node: &str) -> usize {
+        if let Some(&id) = self.node_map.get(node) {
+            return id;
+        }
 
+        let node_id = self.nodes.len();
+        self.node_map.insert(node.to_string(), node_id);
+        self.nodes.push(
+            Node {
+                name: node.to_string(),
+                ancestors: Vec::new(),
+                ancestor_ids: Vec::new(),
+            },
+        );
         node_id
     }
 
-    pub fn contains(&self, node: &String) -> bool {
-        self.node_ids.contains_key(node)
+    #[allow(dead_code)]
+    pub fn contains(&self, node: &str) -> bool {
+        self.node_map.contains_key(node)
+    }
+
+    pub fn get_node(&self, id: usize) -> Option<&Node> {
+        self.nodes.get(id)
+    }
+
+    pub fn get_node_mut(&mut self, id: usize) -> Option<&mut Node> {
+        self.nodes.get_mut(id)
     }
 }
 
@@ -132,12 +160,34 @@ impl BufferTree {
         }
     }
 
-    /// Either update or push a transform to the graph
-    /// Panics if the graph becomes cyclic
+    /// Recursively update the ancestors of a node and its children
+    fn update_subtree_ancestors(&mut self, root_id: usize, ancestors: Vec<String>, ancestor_ids: Vec<usize>) {
+        let mut my_name = String::new();
+        if let Some(node) = self.index.get_node_mut(root_id) {
+            node.ancestors = ancestors.clone();
+            node.ancestor_ids = ancestor_ids.clone();
+            my_name = node.name.clone();
+        }
+
+        let children: Vec<usize> = self.graph
+            .neighbors_directed(root_id, petgraph::Direction::Outgoing)
+            .collect();
+
+        let mut child_ancestors = ancestors;
+        child_ancestors.push(my_name);
+        
+        let mut child_ancestor_ids = ancestor_ids;
+        child_ancestor_ids.push(root_id);
+
+        for child_id in children {
+            self.update_subtree_ancestors(child_id, child_ancestors.clone(), child_ancestor_ids.clone());
+        }
+    }
+
     pub fn update(
         &mut self,
-        from: String,
-        to: String,
+        from: &str,
+        to: &str,
         stamped_isometry: StampedIsometry,
         kind: TransformType,
     ) -> Result<(), TfError> {
@@ -194,7 +244,20 @@ impl BufferTree {
                 }
                 return Err(TfError::InvalidGraph(format!("Graph cycle or multiple parents detected when adding edge {} -> {}", from_idx, to_idx)));
             }
+            
+            // Update ancestors
+            let mut new_ancestors = Vec::new();
+            let mut new_ancestor_ids = Vec::new();
+            if let Some(from_node) = self.index.get_node(from_idx) {
+                new_ancestors = from_node.ancestors.clone();
+                new_ancestors.push(from_node.name.clone());
+                
+                new_ancestor_ids = from_node.ancestor_ids.clone();
+                new_ancestor_ids.push(from_idx);
+            }
+            self.update_subtree_ancestors(to_idx, new_ancestors, new_ancestor_ids);
         }
+
         self.graph
             .edge_weight_mut(from_idx, to_idx)
             .unwrap()
@@ -207,48 +270,58 @@ impl BufferTree {
     /// We have to consider that "form" and "to" are on different branches therefore we
     /// traverse the tree upwards from both nodes until we either hit the other node or the root
     /// Afterwards we prune the leftover path above the connection point
-    fn find_path(&mut self, from: String, to: String) -> Option<Vec<usize>> {
-        let mut path_1 = Vec::new();
-        let mut path_2 = Vec::new();
-        let mut from_idx = self.index.index(from);
-        let mut to_idx = self.index.index(to);
-        path_1.push(from_idx);
-        path_2.push(to_idx);
+    #[allow(dead_code)]
+    fn find_path(&self, from: &str, to: &str) -> Option<Vec<usize>> {
+        let from_idx = self.index.get(from)?;
+        let to_idx = self.index.get(to)?;
+        self.find_path_by_id(from_idx, to_idx)
+    }
 
-        // Find all ancestors of from, return if to is an ancestor
-        while let Some(parent) = self
-            .graph
-            .neighbors_directed(from_idx, petgraph::Direction::Incoming)
-            .next()
-        {
-            // Break if to is ancestor
-            if parent == to_idx {
-                path_1.push(to_idx);
-                return Some(path_1);
-            }
-            path_1.push(parent);
-            from_idx = parent;
-        }
-
-        // Find all ancestors of to until one ancestor is in from
-        while let Some(parent) = self
-            .graph
-            .neighbors_directed(to_idx, petgraph::Direction::Incoming)
-            .next()
-        {
-            if path_1.contains(&parent) {
-                // Remove elements above the common ancestor
-                path_1.drain(path_1.iter().position(|x| *x == parent).unwrap() + 1..);
+    fn find_path_by_id(&self, from_idx: usize, to_idx: usize) -> Option<Vec<usize>> {
+        let from_node = self.index.get_node(from_idx)?;
+        let to_node = self.index.get_node(to_idx)?;
+        
+        // Build full paths from root to each node using pre-computed ancestors
+        let ancestor_ids_from = &from_node.ancestor_ids;
+        let ancestor_ids_to = &to_node.ancestor_ids;
+        
+        // Pre-allocate with exact capacity to avoid reallocation
+        let mut path_from_root = Vec::with_capacity(ancestor_ids_from.len() + 1);
+        path_from_root.extend_from_slice(ancestor_ids_from);
+        path_from_root.push(from_idx);
+        
+        let mut path_to_root = Vec::with_capacity(ancestor_ids_to.len() + 1);
+        path_to_root.extend_from_slice(ancestor_ids_to);
+        path_to_root.push(to_idx);
+        
+        // Find the split point (LCA)
+        let mut split_idx = 0;
+        while split_idx < path_from_root.len() && split_idx < path_to_root.len() {
+            if path_from_root[split_idx] != path_to_root[split_idx] {
                 break;
             }
-            path_2.push(parent);
-            to_idx = parent;
+            split_idx += 1;
         }
-
-        // Merge path on common ancestor
-        path_2.reverse();
-        path_1.append(&mut path_2);
-        Some(path_1)
+        
+        if split_idx == 0 {
+            // No common ancestor
+            return None;
+        }
+        
+        // Pre-allocate result_path with exact size
+        let up_len = path_from_root.len() - split_idx;
+        let down_len = path_to_root.len() - split_idx + 1;
+        let mut result_path = Vec::with_capacity(up_len + down_len);
+        
+        // Add part from 'from' up to LCA (reversed)
+        for i in (split_idx..path_from_root.len()).rev() {
+            result_path.push(path_from_root[i]);
+        }
+        
+        // Add part from LCA down to 'to' (use extend_from_slice for better performance)
+        result_path.extend_from_slice(&path_to_root[split_idx - 1..]);
+        
+        Some(result_path)
     }
 
     /// Lookup the latest transform without any checks
@@ -256,24 +329,23 @@ impl BufferTree {
     /// transform is still valid.
     /// NOTE: This might give you outdated transforms!
     pub fn lookup_latest_transform(
-        &mut self,
-        from: String,
-        to: String,
+        &self,
+        from: &str,
+        to: &str,
     ) -> Result<StampedIsometry, TfError> {
-        if !self.index.contains(&from) {
-            return Err(TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)));
-        }
-        if !self.index.contains(&to) {
-            return Err(TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)));
-        }
+        // Get node IDs upfront to avoid redundant hash lookups
+        let from_idx = self.index.get(from)
+            .ok_or_else(|| TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)))?;
+        let to_idx = self.index.get(to)
+            .ok_or_else(|| TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)))?;
         
-        let path = self.find_path(from.clone(), to.clone());
+        let path = self.find_path_by_id(from_idx, to_idx);
         match path {
             Some(path) => {
                 let isometry = self.compute_transform_along_path(&path, |history| {
                     let latest_transform = history.history
                         .back()
-                        .ok_or(TfError::CouldNotFindTransform("Empty history in edge".to_string()))?;
+                        .ok_or(TfError::CouldNotFindTransform(format!("")))?;
                     Ok(latest_transform.isometry)
                 })?;
                 
@@ -293,19 +365,19 @@ impl BufferTree {
     /// If there is no perfect match the transforms around this time are interpolated
     /// The interpolation is weighted with the distance to the time stamps
     pub fn lookup_transform(
-        &mut self,
-        from: String,
-        to: String,
+        &self,
+        from: &str,
+        to: &str,
         time: f64,
     ) -> Result<StampedIsometry, TfError> {
-        if !self.index.contains(&from) {
-            return Err(TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)));
-        }
-        if !self.index.contains(&to) {
-            return Err(TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)));
-        }
-        
-        let path = self.find_path(from.clone(), to.clone());
+        // Get node IDs upfront to avoid redundant hash lookups
+        let from_idx = self.index.get(from)
+            .ok_or_else(|| TfError::CouldNotFindTransform(format!("Source frame '{}' does not exist", from)))?;
+        let to_idx = self.index.get(to)
+            .ok_or_else(|| TfError::CouldNotFindTransform(format!("Target frame '{}' does not exist", to)))?;
+
+        let path = self.find_path_by_id(from_idx, to_idx);
+
         match path {
             Some(path) => {
                 let isometry = self.compute_transform_along_path(&path, |history| {
@@ -325,19 +397,12 @@ impl BufferTree {
     /// Can not use internal visualizer because we Store the nodes in self.index
     pub fn visualize(&self) -> String {
         // Create a mapping from index back to node name
-        let reverse_index: HashMap<usize, &String> = self
-            .index
-            .node_ids
-            .iter()
-            .map(|(name, &id)| (id, name))
-            .collect();
-
         // Convert the graph to DOT format manually
         let mut dot = String::from("digraph {\n");
 
         // Add nodes
         for node in self.graph.nodes() {
-            let name = reverse_index.get(&node).unwrap();
+            let name = &self.index.get_node(node).unwrap().name;
             dot.push_str(&format!("    {} [label=\"{}\"]\n", node, name));
         }
 
@@ -406,18 +471,20 @@ impl BufferTree {
     {
         let mut isometry = Isometry3::identity();
         
-        for pair in path.windows(2) {
-            let from_idx = pair[0];
-            let to_idx = pair[1];
+        // Use direct indexing instead of windows(2) for better performance
+        for i in 0..path.len().saturating_sub(1) {
+            let from_idx = path[i];
+            let to_idx = path[i + 1];
 
-            if self.graph.contains_edge(from_idx, to_idx) {
-                let edge_weight = self.graph.edge_weight(from_idx, to_idx)
-                    .ok_or(TfError::CouldNotFindTransform(format!("Edge transform not found checking edge {} -> {}", from_idx, to_idx)))?;
+            // Try forward edge first, then reverse - avoids redundant contains_edge check
+            if let Some(edge_weight) = self.graph.edge_weight(from_idx, to_idx) {
                 isometry *= transform_getter(edge_weight)?;
-            } else {
-                let edge_weight = self.graph.edge_weight(to_idx, from_idx)
-                    .ok_or(TfError::CouldNotFindTransform(format!("Edge transform not found checking edge {} -> {}", to_idx, from_idx)))?;
+            } else if let Some(edge_weight) = self.graph.edge_weight(to_idx, from_idx) {
                 isometry *= transform_getter(edge_weight)?.inverse();
+            } else {
+                return Err(TfError::CouldNotFindTransform(
+                    format!("Edge transform not found for edge {} -> {}", from_idx, to_idx)
+                ));
             }
         }
         
@@ -436,23 +503,23 @@ mod tests {
     fn test_buffer_tree_update() {
         let mut buffer_tree = BufferTree::new();
 
-        let source = "A".to_string();
-        let target = "B".to_string();
+        let source = "A";
+        let target = "B";
 
         let stamped_isometry = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
 
         // Add first transformation
         buffer_tree
             .update(
-                source.clone(),
-                target.clone(),
+                source,
+                target,
                 stamped_isometry,
                 TransformType::Static,
             )
             .unwrap();
 
         // Test lookup
-        let result = buffer_tree.lookup_latest_transform(source, target);
+        let result = buffer_tree.lookup_latest_transform(&source, &target);
         assert!(result.is_ok());
     }
 
@@ -464,8 +531,8 @@ mod tests {
         let transform = StampedIsometry::new([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 1.0);
         
         let result = buffer_tree.update(
-            "base_link".to_string(),
-            "target_link".to_string(),
+            "base_link",
+            "target_link",
             transform,
             TransformType::Static,
         );
@@ -473,8 +540,8 @@ mod tests {
         assert!(result.is_ok());
         
         let lookup_result = buffer_tree.lookup_latest_transform(
-            "base_link".to_string(),
-            "target_link".to_string(),
+            "base_link",
+            "target_link",
         );
         
         assert!(lookup_result.is_ok());
@@ -486,25 +553,25 @@ mod tests {
     fn test_buffer_tree_detects_cycles() {
         let mut buffer_tree = BufferTree::new();
 
-        let a = "A".to_string();
-        let b = "B".to_string();
-        let c = "C".to_string();
+        let a = "A";
+        let b = "B";
+        let c = "C";
 
         let stamped_isometry = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
 
         // Add edges A → B and B → C
         buffer_tree
             .update(
-                a.clone(),
-                b.clone(),
+                a,
+                b,
                 stamped_isometry.clone(),
                 TransformType::Static,
             )
             .unwrap();
         buffer_tree
             .update(
-                b.clone(),
-                c.clone(),
+                b,
+                c,
                 stamped_isometry.clone(),
                 TransformType::Static,
             )
@@ -512,8 +579,8 @@ mod tests {
 
         // Creating a cycle C → A should fail
         let result = buffer_tree.update(
-            c.clone(),
-            a.clone(),
+            c,
+            a,
             stamped_isometry.clone(),
             TransformType::Static,
         );
@@ -525,23 +592,23 @@ mod tests {
     fn test_multiple_incoming_edges() {
         let mut buffer_tree = BufferTree::new();
 
-        let a = "A".to_string();
-        let b = "B".to_string();
-        let c = "C".to_string();
+        let a = "A";
+        let b = "B";
+        let c = "C";
 
         let stamped_isometry = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
 
         buffer_tree
             .update(
-                a.clone(),
-                b.clone(),
+                a,
+                b,
                 stamped_isometry.clone(),
                 TransformType::Static,
             )
             .unwrap();
         let result = buffer_tree.update(
-            c.clone(),
-            b.clone(),
+            c,
+            b,
             stamped_isometry.clone(),
             TransformType::Static,
         );
@@ -555,8 +622,8 @@ mod tests {
 
         buffer_tree
             .update(
-                "A".to_string(),
-                "B".to_string(),
+                "A",
+                "B",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Dynamic,
             )
@@ -564,8 +631,8 @@ mod tests {
 
         buffer_tree
             .update(
-                "A".to_string(),
-                "C".to_string(),
+                "A",
+                "C",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 2.0),
                 TransformType::Dynamic,
             )
@@ -573,8 +640,8 @@ mod tests {
 
         buffer_tree
             .update(
-                "B".to_string(),
-                "D".to_string(),
+                "B",
+                "D",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 3.0),
                 TransformType::Dynamic,
             )
@@ -582,8 +649,8 @@ mod tests {
 
         buffer_tree
             .update(
-                "B".to_string(),
-                "E".to_string(),
+                "B",
+                "E",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 3.0),
                 TransformType::Dynamic,
             )
@@ -593,16 +660,16 @@ mod tests {
 
         // Test path finding - these tests verify the internal find_path method works
         // Note: find_path is private, so we test it indirectly through lookup operations
-        let result = buffer_tree.lookup_latest_transform("D".to_string(), "B".to_string());
+        let result = buffer_tree.lookup_latest_transform("D", "B");
         assert!(result.is_ok());
 
-        let result = buffer_tree.lookup_latest_transform("D".to_string(), "C".to_string());
+        let result = buffer_tree.lookup_latest_transform("D", "C");
         assert!(result.is_ok());
 
-        let result = buffer_tree.lookup_latest_transform("D".to_string(), "E".to_string());
+        let result = buffer_tree.lookup_latest_transform("D", "E");
         assert!(result.is_ok());
 
-        let result = buffer_tree.lookup_latest_transform("A".to_string(), "E".to_string());
+        let result = buffer_tree.lookup_latest_transform("A", "E");
         assert!(result.is_ok());
     }
 
@@ -673,8 +740,8 @@ mod tests {
 
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry,
                     TransformType::Dynamic,
                 )
@@ -682,7 +749,7 @@ mod tests {
         }
 
         let transform = buffer_tree
-            .lookup_latest_transform("base_link_inertia".to_string(), "shoulder_link".to_string());
+            .lookup_latest_transform("base_link_inertia", "shoulder_link");
         assert!(transform.is_ok());
         let transform = transform.unwrap();
         let translation = transform.translation();
@@ -701,7 +768,7 @@ mod tests {
 
         // Test that we can find paths between arbitrary frames
         let transform = buffer_tree
-            .lookup_latest_transform("base_link_inertia".to_string(), "wrist_3_link".to_string());
+            .lookup_latest_transform("base_link_inertia", "wrist_3_link");
         assert!(transform.is_ok());
 
         // Add these assertions
@@ -786,8 +853,8 @@ mod tests {
 
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry,
                     TransformType::Dynamic,
                 )
@@ -796,7 +863,7 @@ mod tests {
 
         println!("{}", buffer_tree.visualize());
         let transform = buffer_tree
-            .lookup_latest_transform("wrist_3_link".to_string(), "base_link_inertia".to_string());
+            .lookup_latest_transform("wrist_3_link", "base_link_inertia");
         assert!(transform.is_ok());
         let transform = transform.unwrap();
         let translation = transform.translation();
@@ -886,16 +953,16 @@ mod tests {
 
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry_1,
                     TransformType::Dynamic,
                 )
                 .unwrap();
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry_2,
                     TransformType::Dynamic,
                 )
@@ -903,8 +970,8 @@ mod tests {
         }
 
         let transform = buffer_tree.lookup_transform(
-            "base_link_inertia".to_string(),
-            "shoulder_link".to_string(),
+            "base_link_inertia",
+            "shoulder_link",
             1.5,
         );
         assert!(transform.is_ok());
@@ -925,7 +992,7 @@ mod tests {
 
         // Test that we can find paths between arbitrary frames
         let transform = buffer_tree
-            .lookup_latest_transform("base_link_inertia".to_string(), "wrist_3_link".to_string());
+            .lookup_latest_transform("base_link_inertia", "wrist_3_link");
         assert!(transform.is_ok());
 
         // Add these assertions
@@ -945,8 +1012,8 @@ mod tests {
 
         // Check if correct error raised
         match buffer_tree.lookup_transform(
-            "base_link_inertia".to_string(),
-            "shoulder_link".to_string(),
+            "base_link_inertia",
+            "shoulder_link",
             0.,
         ) {
             Err(TfError::AttemptedLookupInPast(_)) => {
@@ -959,9 +1026,9 @@ mod tests {
             }
         }
         match buffer_tree.lookup_transform(
-            "base_link_inertia".to_string(),
-            "shoulder_link".to_string(),
-            3e12,
+            "base_link_inertia",
+            "shoulder_link",
+            3.,
         ) {
             Err(TfError::AttemptedLookUpInFuture(_)) => {
                 // The function returned the expected error variant
@@ -972,7 +1039,7 @@ mod tests {
                 assert!(false, "Expected TfError::AttemptedLookUpInFuture, got {:?}", err);
             }
         }
-        match buffer_tree.lookup_transform("XXXXX".to_string(), "shoulder_link".to_string(), 3.) {
+        match buffer_tree.lookup_transform("XXXXX", "shoulder_link", 3.) {
             Err(TfError::CouldNotFindTransform(_)) => {
                 // The function returned the expected error variant
                 assert!(true);
@@ -1275,8 +1342,8 @@ mod tests {
             };
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry,
                     TransformType::Dynamic,
                 )
@@ -1299,8 +1366,8 @@ mod tests {
             };
             buffer_tree
                 .update(
-                    source.to_string(),
-                    target.to_string(),
+                    source,
+                    target,
                     stamped_isometry,
                     TransformType::Dynamic,
                 )
@@ -1309,7 +1376,7 @@ mod tests {
 
         // Look up transform at t=0.2
         let result = buffer_tree
-            .lookup_transform("a".to_string(), "f".to_string(), 0.2)
+            .lookup_transform("a", "f", 0.2)
             .unwrap();
 
         // Expected values
@@ -1418,7 +1485,7 @@ mod tests {
         // Test each case
         for (time, source, target, translation, rotation) in test_cases {
             let result = buffer_tree
-                .lookup_transform(source.to_string(), target.to_string(), time)
+                .lookup_transform(source, target, time)
                 .unwrap();
 
             // Assert translation components
@@ -1470,8 +1537,8 @@ mod tests {
         // Add some transforms but leave frames disconnected
         buffer_tree
             .update(
-                "A".to_string(),
-                "B".to_string(),
+                "A",
+                "B",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Static,
             )
@@ -1479,20 +1546,20 @@ mod tests {
 
         buffer_tree
             .update(
-                "C".to_string(),
-                "D".to_string(),
+                "C",
+                "D",
                 StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Static,
             )
             .unwrap();
 
         // Try to lookup transform between disconnected frames
-        let result = buffer_tree.lookup_latest_transform("A".to_string(), "C".to_string());
+        let result = buffer_tree.lookup_latest_transform("A", "C");
         assert!(result.is_err());
         assert!(matches!(result, Err(TfError::CouldNotFindTransform(_))));
 
         // Try to lookup transform between non-existent frames
-        let result = buffer_tree.lookup_latest_transform("X".to_string(), "Y".to_string());
+        let result = buffer_tree.lookup_latest_transform("X", "Y");
         assert!(result.is_err());
         assert!(matches!(result, Err(TfError::CouldNotFindTransform(_))));
     }
@@ -1538,5 +1605,39 @@ mod tests {
         // Verify interpolation fails for times outside the buffer window
         let result = history.interpolate_isometry_at_time(0.1);
         assert!(matches!(result, Err(TfError::AttemptedLookupInPast(_))));
+    }
+
+    #[test]
+    fn test_ancestor_updates() {
+        let mut buffer_tree = BufferTree::new();
+        
+        let a = "A";
+        let b = "B";
+        let c = "C";
+        let r = "R";
+        
+        let tf = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
+        
+        // A -> B -> C
+        buffer_tree.update(a, b, tf.clone(), TransformType::Static).unwrap();
+        buffer_tree.update(b, c, tf.clone(), TransformType::Static).unwrap();
+        
+        // Check ancestors
+        let get_ancestors = |buffer: &BufferTree, node: &str| -> Vec<String> {
+            let id = buffer.index.get(node).unwrap();
+            buffer.index.get_node(id).unwrap().ancestors.clone()
+        };
+        
+        assert_eq!(get_ancestors(&buffer_tree, a), Vec::<String>::new());
+        assert_eq!(get_ancestors(&buffer_tree, b), vec![a.to_string()]);
+        assert_eq!(get_ancestors(&buffer_tree, c), vec![a.to_string(), b.to_string()]);
+        
+        // Add R -> A
+        buffer_tree.update(r, a, tf.clone(), TransformType::Static).unwrap();
+        
+        // Check updates
+        assert_eq!(get_ancestors(&buffer_tree, a), vec![r.to_string()]);
+        assert_eq!(get_ancestors(&buffer_tree, b), vec![r.to_string(), a.to_string()]);
+        assert_eq!(get_ancestors(&buffer_tree, c), vec![r.to_string(), a.to_string(), b.to_string()]);
     }
 }
