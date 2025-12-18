@@ -197,7 +197,7 @@ impl BufferTree {
         );
         
         self.inner
-            .update(from, to, core_stamped_isometry, kind.into())
+            .update(&from, &to, core_stamped_isometry, kind.into())
             .map_err(core_err_to_pyerr)?;
         Ok(())
     }
@@ -211,7 +211,7 @@ impl BufferTree {
         from: String,
         to: String,
     ) -> PyResult<StampedIsometry> {
-        let result = self.inner.lookup_latest_transform(from, to);
+        let result = self.inner.lookup_latest_transform(&from, &to);
         match result {
             Ok(transform) => Ok(StampedIsometry::from(transform)),
             Err(e) => Err(TfError::from(e).into()),
@@ -230,7 +230,7 @@ impl BufferTree {
         to: String,
         time: f64,
     ) -> PyResult<StampedIsometry> {
-        let result = self.inner.lookup_transform(from, to, time);
+        let result = self.inner.lookup_transform(&from, &to, time);
         match result {
             Ok(transform) => Ok(StampedIsometry::from(transform)),
             Err(e) => Err(core_err_to_pyerr(e)),

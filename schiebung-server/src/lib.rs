@@ -61,14 +61,18 @@ impl TFPublisher {
     pub fn publish(&self, tf_request: &TransformRequest) -> Result<(), Box<dyn std::error::Error>> {
         let target_isometry: Result<StampedIsometry, TfError>;
         if tf_request.time == 0.0 {
+            let from = decode_char_array(&tf_request.from);
+            let to = decode_char_array(&tf_request.to);
             target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
-                decode_char_array(&tf_request.from),
-                decode_char_array(&tf_request.to),
+                &from,
+                &to,
             );
         } else {
+            let from = decode_char_array(&tf_request.from);
+            let to = decode_char_array(&tf_request.to);
             target_isometry = self.buffer.lock().unwrap().lookup_transform(
-                decode_char_array(&tf_request.from),
-                decode_char_array(&tf_request.to),
+                &from,
+                &to,
                 tf_request.time,
             );
         }
@@ -268,9 +272,11 @@ impl Server {
                 ),
                 stamp: new_tf.time,
             };
+            let from = decode_char_array(&new_tf.from);
+            let to = decode_char_array(&new_tf.to);
             let result = self.buffer.lock().unwrap().update(
-                decode_char_array(&new_tf.from),
-                decode_char_array(&new_tf.to),
+                &from,
+                &to,
                 iso,
                 TransformType::try_from(new_tf.kind).unwrap(),
             );
