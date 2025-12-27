@@ -9,6 +9,8 @@ pub enum TfError {
     CouldNotFindTransform(String),
     /// The graph is cyclic or the target has multiple incoming edges.
     InvalidGraph(String),
+    /// Error loading or parsing a file format (URDF, USD, etc.)
+    LoaderError(String),
 }
 
 impl TfError {
@@ -24,6 +26,7 @@ impl TfError {
                 format!("TfError.CouldNotFindTransform: {}", msg)
             }
             TfError::InvalidGraph(msg) => format!("TfError.InvalidGraph: {}", msg),
+            TfError::LoaderError(msg) => format!("TfError.LoaderError: {}", msg),
         }
     }
 }

@@ -176,6 +176,10 @@ impl StampedIsometry {
         let (roll, pitch, yaw) = self.isometry.rotation.euler_angles();
         [roll, pitch, yaw]
     }
+
+    pub fn norm(&self) -> f64 {
+        self.isometry.translation.vector.norm()
+    }
 }
 
 impl fmt::Display for StampedIsometry {
