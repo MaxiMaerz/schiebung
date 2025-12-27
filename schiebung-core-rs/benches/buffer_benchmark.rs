@@ -10,38 +10,35 @@ use std::hint::black_box;
 /// Create a simple 2-frame buffer (A -> B) with dynamic transforms
 fn setup_simple_dynamic_buffer() -> BufferTree {
     let mut buffer = BufferTree::new();
-    
+
     // Fill buffer with 100 timestamped transforms
     for i in 0..100 {
-        let isometry = StampedIsometry::new(
-            [i as f64, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-            i as f64 * 0.1,
-        );
+        let isometry =
+            StampedIsometry::new([i as f64, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], i as f64 * 0.1);
         buffer
             .update("frame_a", "frame_b", isometry, TransformType::Dynamic)
             .unwrap();
     }
-    
+
     buffer
 }
 
 /// Create a simple 2-frame buffer (A -> B) with static transform
 fn setup_simple_static_buffer() -> BufferTree {
     let mut buffer = BufferTree::new();
-    
+
     let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0);
     buffer
         .update("frame_a", "frame_b", isometry, TransformType::Static)
         .unwrap();
-    
+
     buffer
 }
 
 /// Create a deep tree: A -> N1 -> N2 -> ... -> N99 -> E (100 edges total)
 fn setup_deep_tree() -> BufferTree {
     let mut buffer = BufferTree::new();
-    
+
     for i in 0..100 {
         let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0);
         let target_name = if i == 99 {
@@ -59,21 +56,26 @@ fn setup_deep_tree() -> BufferTree {
             .update(&source_name, &target_name, isometry, TransformType::Static)
             .unwrap();
     }
-    
+
     buffer
 }
 
 /// Create a wide tree: root with N children
 fn setup_wide_tree(num_children: usize) -> BufferTree {
     let mut buffer = BufferTree::new();
-    
+
     for i in 0..num_children {
         let isometry = StampedIsometry::new([i as f64, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0);
         buffer
-            .update("root", &format!("child_{}", i), isometry, TransformType::Static)
+            .update(
+                "root",
+                &format!("child_{}", i),
+                isometry,
+                TransformType::Static,
+            )
             .unwrap();
     }
-    
+
     buffer
 }
 
@@ -133,11 +135,7 @@ fn bench_lookup_transform(c: &mut Criterion) {
     c.bench_function("lookup_transform/simple_interpolated", |b| {
         b.iter(|| {
             buffer
-                .lookup_transform(
-                    black_box("frame_a"),
-                    black_box("frame_b"),
-                    black_box(5.0),
-                )
+                .lookup_transform(black_box("frame_a"), black_box("frame_b"), black_box(5.0))
                 .unwrap()
         })
     });
@@ -146,11 +144,7 @@ fn bench_lookup_transform(c: &mut Criterion) {
     c.bench_function("lookup_transform/simple_static", |b| {
         b.iter(|| {
             buffer_static
-                .lookup_transform(
-                    black_box("frame_a"),
-                    black_box("frame_b"),
-                    black_box(0.0),
-                )
+                .lookup_transform(black_box("frame_a"), black_box("frame_b"), black_box(0.0))
                 .unwrap()
         })
     });
@@ -229,7 +223,7 @@ fn bench_lookup_scaling(c: &mut Criterion) {
 fn bench_path_finding(c: &mut Criterion) {
     // Note: find_path is private, so we benchmark it indirectly through lookup_latest_transform
     // but isolate just the path finding cost by using static transforms
-    
+
     let buffer_simple = setup_simple_static_buffer();
     c.bench_function("path_finding/simple_2_nodes", |b| {
         b.iter(|| {
@@ -293,10 +287,7 @@ fn bench_raw_nalgebra(c: &mut Criterion) {
 // Criterion Groups
 // ============================================================================
 
-criterion_group!(
-    update_benches,
-    bench_update_new_edge,
-);
+criterion_group!(update_benches, bench_update_new_edge,);
 
 criterion_group!(
     lookup_benches,
@@ -306,14 +297,13 @@ criterion_group!(
     bench_lookup_scaling,
 );
 
-criterion_group!(
+criterion_group!(path_benches, bench_path_finding,);
+
+criterion_group!(baseline_benches, bench_raw_nalgebra,);
+
+criterion_main!(
+    update_benches,
+    lookup_benches,
     path_benches,
-    bench_path_finding,
+    baseline_benches
 );
-
-criterion_group!(
-    baseline_benches,
-    bench_raw_nalgebra,
-);
-
-criterion_main!(update_benches, lookup_benches, path_benches, baseline_benches);

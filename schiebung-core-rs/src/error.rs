@@ -14,9 +14,15 @@ pub enum TfError {
 impl TfError {
     pub fn to_string(&self) -> String {
         match self {
-            TfError::AttemptedLookupInPast(msg) => format!("TfError.AttemptedLookupInPast: {}", msg),
-            TfError::AttemptedLookUpInFuture(msg) => format!("TfError.AttemptedLookUpInFuture: {}", msg),
-            TfError::CouldNotFindTransform(msg) => format!("TfError.CouldNotFindTransform: {}", msg),
+            TfError::AttemptedLookupInPast(msg) => {
+                format!("TfError.AttemptedLookupInPast: {}", msg)
+            }
+            TfError::AttemptedLookUpInFuture(msg) => {
+                format!("TfError.AttemptedLookUpInFuture: {}", msg)
+            }
+            TfError::CouldNotFindTransform(msg) => {
+                format!("TfError.CouldNotFindTransform: {}", msg)
+            }
             TfError::InvalidGraph(msg) => format!("TfError.InvalidGraph: {}", msg),
         }
     }
