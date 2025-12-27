@@ -63,18 +63,19 @@ impl TFPublisher {
         if tf_request.time == 0.0 {
             let from = decode_char_array(&tf_request.from);
             let to = decode_char_array(&tf_request.to);
-            target_isometry = self.buffer.lock().unwrap().lookup_latest_transform(
-                &from,
-                &to,
-            );
+            target_isometry = self
+                .buffer
+                .lock()
+                .unwrap()
+                .lookup_latest_transform(&from, &to);
         } else {
             let from = decode_char_array(&tf_request.from);
             let to = decode_char_array(&tf_request.to);
-            target_isometry = self.buffer.lock().unwrap().lookup_transform(
-                &from,
-                &to,
-                tf_request.time,
-            );
+            target_isometry =
+                self.buffer
+                    .lock()
+                    .unwrap()
+                    .lookup_transform(&from, &to, tf_request.time);
         }
         match target_isometry {
             Ok(target_isometry) => {

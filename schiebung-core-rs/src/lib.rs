@@ -1,9 +1,9 @@
-pub mod types;
+pub mod buffer;
 pub mod config;
 pub mod error;
-pub mod buffer;
+pub mod types;
 
-pub use types::{StampedIsometry, TransformType};
-pub use error::TfError;
-pub use buffer::{BufferTree};
+pub use buffer::BufferTree;
 pub use config::{get_config, BufferConfig};
+pub use error::TfError;
+pub use types::{StampedIsometry, TransformType};

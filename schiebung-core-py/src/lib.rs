@@ -1,11 +1,9 @@
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 
 use ::schiebung::{
-    BufferTree as CoreBufferTree,
-    StampedIsometry as CoreStampedIsometry,
+    BufferTree as CoreBufferTree, StampedIsometry as CoreStampedIsometry, TfError as CoreTfError,
     TransformType as CoreTransformType,
-    TfError as CoreTfError,
 };
 
 /// Python wrapper for TfError
@@ -195,7 +193,7 @@ impl BufferTree {
             stamped_isometry.rotation(),
             stamped_isometry.stamp(),
         );
-        
+
         self.inner
             .update(&from, &to, core_stamped_isometry, kind.into())
             .map_err(core_err_to_pyerr)?;
@@ -246,9 +244,9 @@ impl BufferTree {
     /// Save the buffer tree as a PDF and dot file
     /// Runs graphiz to generate the PDF, fails if graphiz is not installed
     pub fn save_visualization(&self) -> PyResult<()> {
-        self.inner.save_visualization().map_err(|e| {
-            PyValueError::new_err(format!("Failed to save visualization: {}", e))
-        })
+        self.inner
+            .save_visualization()
+            .map_err(|e| PyValueError::new_err(format!("Failed to save visualization: {}", e)))
     }
 }
 
