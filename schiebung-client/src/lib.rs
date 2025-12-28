@@ -1,13 +1,73 @@
+use iceoryx2::port::client::Client;
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
 use iceoryx2::port::publisher::Publisher;
-use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
-use log::info;
 use nalgebra::{Translation3, UnitQuaternion};
-use schiebung::types::{NewTransform, TransformRequest, TransformResponse, TransformType};
+use schiebung_commons::{NewTransform, TransformRequest, TransformResponse, TransformType};
 use schiebung_server::config::get_config;
 use schiebung_server::types::PubSubEvent;
+
+pub struct ListenerClient {
+    client: Client<ipc::Service, TransformRequest, (), TransformResponse, ()>,
+}
+
+impl ListenerClient {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let node = NodeBuilder::new().create::<ipc::Service>()?;
+        let service = node
+            .service_builder(&"tf_request".try_into()?)
+            .request_response::<TransformRequest, TransformResponse>()
+            .open_or_create()?;
+        let client = service.client_builder().create()?;
+
+        Ok(Self { client })
+    }
+
+    pub fn request_transform(
+        &self,
+        from: &String,
+        to: &String,
+        time: f64,
+    ) -> Result<TransformResponse, Box<dyn std::error::Error>> {
+        // Prepare request
+        let request = self.client.loan_uninit()?;
+        let mut from_array: [char; 100] = ['\0'; 100];
+        let mut to_array: [char; 100] = ['\0'; 100];
+
+        for (i, c) in from.chars().enumerate() {
+            if i < 100 {
+                from_array[i] = c;
+            } else {
+                break;
+            }
+        }
+        for (i, c) in to.chars().enumerate() {
+            if i < 100 {
+                to_array[i] = c;
+            } else {
+                break;
+            }
+        }
+
+        let request = request.write_payload(TransformRequest {
+            from: from_array,
+            to: to_array,
+            time,
+        });
+
+        // Send request and get pending response
+        let pending_response = request.send()?;
+
+        // Wait for response (blocking)
+        loop {
+            if let Some(response) = pending_response.receive()? {
+                return Ok(response.payload().clone());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+}
 
 fn encode_char_array(input: &String) -> [char; 100] {
     let mut char_array: [char; 100] = ['\0'; 100];
@@ -19,122 +79,6 @@ fn encode_char_array(input: &String) -> [char; 100] {
         }
     }
     char_array
-}
-
-pub struct ListenerClient {
-    tf_listener: Subscriber<ipc::Service, TransformResponse, ()>,
-    tf_requester: Publisher<ipc::Service, TransformRequest, ()>,
-    tf_requester_notifier: Notifier<ipc::Service>,
-    tf_listener_event_listener: Listener<ipc::Service>,
-    id: u128,
-}
-
-impl ListenerClient {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let config = get_config()?;
-        let node = NodeBuilder::new().create::<ipc::Service>()?;
-
-        info!("max_subscribers: {}", config.max_subscribers);
-        let listener_name = &"tf_request".try_into()?;
-        let publish_service = node
-            .service_builder(listener_name)
-            .publish_subscribe::<TransformRequest>()
-            .max_publishers(config.max_subscribers)
-            .max_subscribers(config.max_subscribers)
-            .open_or_create()?;
-        let publisher = publish_service
-            .publisher_builder()
-            .unable_to_deliver_strategy(UnableToDeliverStrategy::DiscardSample)
-            .create()?;
-        let publish_service_notifier = node
-            .service_builder(listener_name)
-            .event()
-            .max_listeners(config.max_subscribers)
-            .open_or_create()?;
-        let publish_service_notifier = publish_service_notifier.notifier_builder().create()?;
-        let id = publisher.id().value();
-
-        let service_name = ServiceName::new(&("tf_replay_".to_string() + &id.to_string()))?;
-        let subscribe_service = node
-            .service_builder(&service_name)
-            .publish_subscribe::<TransformResponse>()
-            .max_publishers(1)
-            .max_subscribers(1)
-            .open_or_create()?;
-        let listener = subscribe_service.subscriber_builder().create()?;
-        let notifier_service = node
-            .service_builder(&service_name)
-            .event()
-            .max_listeners(1)
-            .open_or_create()?;
-        let tf_listener_event_listener = notifier_service.listener_builder().create()?;
-
-        Ok(Self {
-            tf_listener: listener,
-            tf_requester: publisher,
-            tf_requester_notifier: publish_service_notifier,
-            tf_listener_event_listener: tf_listener_event_listener,
-            id: id.clone(),
-        })
-    }
-
-    pub fn request_transform(
-        &self,
-        from: &String,
-        to: &String,
-        time: f64,
-    ) -> Result<TransformResponse, PubSubEvent> {
-        // First send the request
-        let sample = self.tf_requester.loan_uninit().unwrap();
-        let sample = sample.write_payload(TransformRequest {
-            from: encode_char_array(from),
-            to: encode_char_array(to),
-            time: time,
-            id: self.id,
-        });
-        sample.send().unwrap();
-        self.tf_requester_notifier
-            .notify_with_custom_event_id(PubSubEvent::SentSample.into())
-            .unwrap();
-
-        // Now wait until we get the response
-        while let Some(event) = self.tf_listener_event_listener.blocking_wait_one().unwrap() {
-            let event: PubSubEvent = event.into();
-            match event {
-                PubSubEvent::SentSample => {
-                    info!("Server sent payload");
-                    let sample = self.tf_listener.receive().unwrap().unwrap();
-                    info!(
-                        "Received sample payload id: {}, self id: {}",
-                        sample.id, self.id
-                    );
-                    if sample.id == self.id {
-                        info!("Server sent payload with correct id");
-                        let result = Ok(sample.clone());
-                        let _res = self
-                            .tf_requester_notifier
-                            .notify_with_custom_event_id(PubSubEvent::ReceivedSample.into());
-                        info!("Returning result");
-                        return result;
-                    }
-                    continue;
-                }
-                PubSubEvent::Error => {
-                    return Err(event);
-                }
-                _ => (),
-            }
-        }
-        Err(PubSubEvent::Unknown)
-    }
-}
-
-impl Drop for ListenerClient {
-    fn drop(&mut self) {
-        self.tf_requester_notifier
-            .notify_with_custom_event_id(PubSubEvent::SubscriberDisconnected.into())
-            .unwrap();
-    }
 }
 
 pub struct PublisherClient {

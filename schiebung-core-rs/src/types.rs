@@ -1,4 +1,4 @@
-use nalgebra::{Isometry, Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -39,78 +39,6 @@ impl fmt::Display for TransformType {
             TransformType::Static => write!(f, "TransformType.STATIC"),
             TransformType::Dynamic => write!(f, "TransformType.DYNAMIC"),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct TransformRequest {
-    pub id: u128,
-    pub from: [char; 100],
-    pub to: [char; 100],
-    pub time: f64,
-}
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct TransformResponse {
-    pub id: u128,
-    pub time: f64,
-    pub translation: [f64; 3],
-    pub rotation: [f64; 4],
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct NewTransform {
-    pub from: [char; 100],
-    pub to: [char; 100],
-    pub time: f64,
-    pub translation: [f64; 3],
-    pub rotation: [f64; 4],
-    pub kind: u8,
-}
-
-#[derive(Clone, Debug)]
-pub struct StampedTransform {
-    stamp: f64,
-    translation: Vector3<f64>,
-    rotation: UnitQuaternion<f64>,
-}
-
-impl From<TransformResponse> for StampedTransform {
-    fn from(response: TransformResponse) -> Self {
-        let translation_vector = Vector3::new(
-            response.translation[0],
-            response.translation[1],
-            response.translation[2],
-        );
-
-        let rotation_quaternion = UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
-            response.rotation[3],
-            response.rotation[0],
-            response.rotation[1],
-            response.rotation[2],
-        ));
-
-        StampedTransform {
-            stamp: response.time,
-            translation: translation_vector,
-            rotation: rotation_quaternion,
-        }
-    }
-}
-
-impl fmt::Display for StampedTransform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Convert quaternion to Euler angles
-        write!(
-            f,
-            "stamp: {},\ntranslation: {:.3}, {:.3}, {:.3},\nrotation (xyzw): {:.3}, {:.3}, {:.3}, {:.3},\nrotation (rpy): {:.3}, {:.3}, {:.3}",
-            self.stamp, self.translation.x, self.translation.y, self.translation.z,
-            self.rotation.i, self.rotation.j, self.rotation.k, self.rotation.w,
-            self.rotation.euler_angles().0, self.rotation.euler_angles().1, self.rotation.euler_angles().2
-        )
     }
 }
 
@@ -187,27 +115,5 @@ impl fmt::Display for StampedIsometry {
             "StampedIsometry(translation=[{:.3}, {:.3}, {:.3}], rotation=[{:.3}, {:.3}, {:.3}, {:.3}], stamp={:.3})",
             t[0], t[1], t[2], r[0], r[1], r[2], r[3], self.stamp()
         )
-    }
-}
-
-impl From<TransformResponse> for StampedIsometry {
-    fn from(response: TransformResponse) -> Self {
-        let isometry = Isometry::from_parts(
-            Translation3::new(
-                response.translation[0],
-                response.translation[1],
-                response.translation[2],
-            ),
-            UnitQuaternion::new_normalize(Quaternion::new(
-                response.rotation[3],
-                response.rotation[0],
-                response.rotation[1],
-                response.rotation[2],
-            )),
-        );
-        StampedIsometry {
-            isometry,
-            stamp: response.time,
-        }
     }
 }

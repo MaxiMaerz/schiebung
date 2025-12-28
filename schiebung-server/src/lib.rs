@@ -1,20 +1,15 @@
 use iceoryx2::port::listener::Listener;
 use iceoryx2::port::notifier::Notifier;
-use iceoryx2::port::publisher::Publisher;
+use iceoryx2::port::server::Server as IoxServer;
 use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
 use log::{debug, error, info};
 use nalgebra::{Isometry, Quaternion, Translation3, UnitQuaternion};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use schiebung::BufferTree;
-use schiebung::{
-    types::{NewTransform, StampedIsometry, TransformRequest, TransformResponse, TransformType},
-    TfError,
-};
+use schiebung::{types::StampedIsometry, TfError};
+use schiebung_commons::{NewTransform, TransformRequest, TransformResponse, TransformType};
 
 pub mod types;
 use crate::types::PubSubEvent;
@@ -25,122 +20,15 @@ fn decode_char_array(arr: &[char; 100]) -> String {
     arr.iter().take_while(|&&c| c != '\0').collect()
 }
 
-struct TFPublisher {
-    buffer: Arc<Mutex<BufferTree>>,
-    publisher: Publisher<ipc::Service, TransformResponse, ()>,
-    notifier: Notifier<ipc::Service>,
-}
-
-impl TFPublisher {
-    pub fn new(
-        buffer: Arc<Mutex<BufferTree>>,
-        id: u128,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let node = NodeBuilder::new().create::<ipc::Service>()?;
-        let service_name = ServiceName::new(&("tf_replay_".to_string() + &id.to_string()))?;
-        let publisher_service = node
-            .service_builder(&service_name)
-            .publish_subscribe::<TransformResponse>()
-            .max_publishers(1)
-            .max_subscribers(1)
-            .open_or_create()?;
-        let notifier_service = node
-            .service_builder(&service_name)
-            .event()
-            .max_listeners(1)
-            .open_or_create()?;
-        let publisher = publisher_service.publisher_builder().create()?;
-        let notifier = notifier_service.notifier_builder().create()?;
-        Ok(Self {
-            buffer: buffer,
-            publisher: publisher,
-            notifier: notifier,
-        })
-    }
-
-    pub fn publish(&self, tf_request: &TransformRequest) -> Result<(), Box<dyn std::error::Error>> {
-        let target_isometry: Result<StampedIsometry, TfError>;
-        if tf_request.time == 0.0 {
-            let from = decode_char_array(&tf_request.from);
-            let to = decode_char_array(&tf_request.to);
-            target_isometry = self
-                .buffer
-                .lock()
-                .unwrap()
-                .lookup_latest_transform(&from, &to);
-        } else {
-            let from = decode_char_array(&tf_request.from);
-            let to = decode_char_array(&tf_request.to);
-            target_isometry =
-                self.buffer
-                    .lock()
-                    .unwrap()
-                    .lookup_transform(&from, &to, tf_request.time);
-        }
-        match target_isometry {
-            Ok(target_isometry) => {
-                let sample = self.publisher.loan_uninit().unwrap();
-                let sample = sample.write_payload(TransformResponse {
-                    id: tf_request.id,
-                    time: target_isometry.stamp,
-                    translation: [
-                        target_isometry.isometry.translation.x,
-                        target_isometry.isometry.translation.y,
-                        target_isometry.isometry.translation.z,
-                    ],
-                    rotation: [
-                        target_isometry.isometry.rotation.i,
-                        target_isometry.isometry.rotation.j,
-                        target_isometry.isometry.rotation.k,
-                        target_isometry.isometry.rotation.w,
-                    ],
-                });
-                sample.send().unwrap();
-                self.notifier
-                    .notify_with_custom_event_id(PubSubEvent::SentSample.into())
-                    .unwrap();
-                info!(
-                    "Published transform from: {} to {}:",
-                    decode_char_array(&tf_request.from),
-                    decode_char_array(&tf_request.to)
-                );
-            }
-            Err(e) => {
-                error!(
-                    "No transform from {} to {} err: {:?}",
-                    decode_char_array(&tf_request.from),
-                    decode_char_array(&tf_request.to),
-                    e
-                );
-                self.notifier
-                    .notify_with_custom_event_id(PubSubEvent::Error.into())
-                    .unwrap();
-            }
-        }
-        Ok(())
-    }
-}
-
 pub struct Server {
-    pub request_listener: Subscriber<ipc::Service, TransformRequest, ()>,
-    pub request_listener_notifier: Listener<ipc::Service>,
+    pub request_response_server:
+        IoxServer<ipc::Service, TransformRequest, (), TransformResponse, ()>,
     pub transform_listener: Subscriber<ipc::Service, NewTransform, ()>,
     pub transform_listener_event_listener: Listener<ipc::Service>,
     pub transform_listener_notifier: Notifier<ipc::Service>,
     pub visualizer_listener: Listener<ipc::Service>,
     buffer: Arc<Mutex<BufferTree>>,
-    active_publishers: Arc<Mutex<HashMap<u128, TFPublisher>>>,
 }
-
-/// This is needed for the WaitSet to work
-impl FileDescriptorBased for Server {
-    fn file_descriptor(&self) -> &FileDescriptor {
-        self.request_listener_notifier.file_descriptor()
-    }
-}
-
-/// This is needed for the WaitSet to work
-impl SynchronousMultiplexing for Server {}
 
 impl Server {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
@@ -148,21 +36,13 @@ impl Server {
         let buffer = Arc::new(Mutex::new(BufferTree::new()));
         let node = Arc::new(NodeBuilder::new().create::<ipc::Service>()?);
 
-        // Listen for incoming requests
-        let listener_name = "tf_request".try_into()?;
+        // Create request-response server for transform requests
+        let service_name = "tf_request".try_into()?;
         let service = node
-            .service_builder(&listener_name)
-            .publish_subscribe::<TransformRequest>()
-            .max_publishers(config.max_subscribers)
-            .max_subscribers(config.max_subscribers)
+            .service_builder(&service_name)
+            .request_response::<TransformRequest, TransformResponse>()
             .open_or_create()?;
-        let subscriber = service.subscriber_builder().create()?;
-        let event_service = node
-            .service_builder(&listener_name)
-            .event()
-            .max_listeners(config.max_subscribers)
-            .open_or_create()?;
-        let request_listener_notifier = event_service.listener_builder().create()?;
+        let request_response_server = service.server_builder().create()?;
 
         // Publisher
         let publisher_name = "new_tf".try_into()?;
@@ -191,45 +71,72 @@ impl Server {
         let visualizer_listener = visualizer_event_service.listener_builder().create()?;
 
         Ok(Self {
-            buffer: buffer,
-            request_listener: subscriber,
-            request_listener_notifier: request_listener_notifier,
-            transform_listener: transform_listener,
+            buffer,
+            request_response_server,
+            transform_listener,
             transform_listener_event_listener: transform_listener_notifier,
             transform_listener_notifier: notifier,
-            visualizer_listener: visualizer_listener,
-            active_publishers: Arc::new(Mutex::new(HashMap::new())),
+            visualizer_listener,
         })
     }
 
-    pub fn handle_listener_event(&self) -> Result<(), Box<dyn std::error::Error>> {
-        while let Some(event) = self.request_listener_notifier.try_wait_one()? {
-            let event: PubSubEvent = event.into();
-            match event {
-                PubSubEvent::SentSample => self.process_listener_request()?,
-                _ => (),
-            }
-        }
+    pub fn handle_request_event(&self) -> Result<(), Box<dyn std::error::Error>> {
+        while let Some(active_request) = self.request_response_server.receive()? {
+            let tf_request = active_request.payload();
+            debug!("Received transform request: {:?}", tf_request);
 
-        Ok(())
-    }
-
-    fn process_listener_request(&self) -> Result<(), Box<dyn std::error::Error>> {
-        match self.request_listener.receive()? {
-            Some(sample) => {
-                debug!("Received listener request: {:?}", sample);
-                let tf_request = sample.payload().clone();
-                let mut active_publishers = self.active_publishers.lock().unwrap();
-                if !active_publishers.contains_key(&tf_request.id) {
-                    let publisher = TFPublisher::new(self.buffer.clone(), tf_request.id)?;
-                    active_publishers.insert(tf_request.id, publisher);
-                }
-                active_publishers
-                    .get(&tf_request.id)
+            // Lookup the transform
+            let target_isometry: Result<StampedIsometry, TfError> = if tf_request.time == 0.0 {
+                let from = decode_char_array(&tf_request.from);
+                let to = decode_char_array(&tf_request.to);
+                self.buffer
+                    .lock()
                     .unwrap()
-                    .publish(&tf_request)?;
+                    .lookup_latest_transform(&from, &to)
+            } else {
+                let from = decode_char_array(&tf_request.from);
+                let to = decode_char_array(&tf_request.to);
+                self.buffer
+                    .lock()
+                    .unwrap()
+                    .lookup_transform(&from, &to, tf_request.time)
+            };
+
+            // Send response
+            match target_isometry {
+                Ok(target_isometry) => {
+                    let response = active_request.loan_uninit()?;
+                    let response = response.write_payload(TransformResponse {
+                        time: target_isometry.stamp,
+                        translation: [
+                            target_isometry.isometry.translation.x,
+                            target_isometry.isometry.translation.y,
+                            target_isometry.isometry.translation.z,
+                        ],
+                        rotation: [
+                            target_isometry.isometry.rotation.i,
+                            target_isometry.isometry.rotation.j,
+                            target_isometry.isometry.rotation.k,
+                            target_isometry.isometry.rotation.w,
+                        ],
+                    });
+                    response.send()?;
+                    info!(
+                        "Sent transform response from {} to {}",
+                        decode_char_array(&tf_request.from),
+                        decode_char_array(&tf_request.to)
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Transform lookup failed from {} to {}: {:?}",
+                        decode_char_array(&tf_request.from),
+                        decode_char_array(&tf_request.to),
+                        e
+                    );
+                    // Drop the request without sending a response (or we could send an error response)
+                }
             }
-            None => (),
         }
         Ok(())
     }

@@ -46,6 +46,9 @@ impl TransformHistory {
                 return Ok(self.history.back().unwrap().isometry);
             }
             TransformType::Dynamic => {
+                if self.history.len() == 1 && self.history.front().unwrap().stamp == time {
+                    return Ok(self.history.front().unwrap().isometry);
+                }
                 if self.history.len() < 2 {
                     return Err(TfError::CouldNotFindTransform(format!(
                         "Not enough history to interpolate. Len: {}",

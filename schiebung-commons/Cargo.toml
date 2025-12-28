@@ -1,0 +1,9 @@
+[package]
+name = "schiebung-commons"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iceoryx2 = "0.8.0"
+nalgebra = "0.33.2"
+schiebung = { path = "../schiebung-core-rs" }

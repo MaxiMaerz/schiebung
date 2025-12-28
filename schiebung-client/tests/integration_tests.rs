@@ -19,9 +19,6 @@ pub fn test_basic_interaction() {
         let server = Server::new().unwrap();
 
         let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
-        let request_listener_guard = waitset
-            .attach_notification(&server.request_listener_notifier)
-            .unwrap();
         let transform_listener_guard = waitset
             .attach_notification(&server.transform_listener_event_listener)
             .unwrap();
@@ -32,9 +29,10 @@ pub fn test_basic_interaction() {
         let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
 
         let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-            if attachment_id.has_event_from(&request_listener_guard) {
-                server.handle_listener_event().unwrap();
-            } else if attachment_id.has_event_from(&transform_listener_guard) {
+            // Poll request-response server
+            server.handle_request_event().unwrap();
+
+            if attachment_id.has_event_from(&transform_listener_guard) {
                 server.handle_transform_listener_event().unwrap();
             } else if attachment_id.has_event_from(&visualizer_event_guard) {
                 server.handle_visualizer_event().unwrap();
@@ -98,9 +96,6 @@ fn test_multi_client_interaction() {
         let server = Server::new().unwrap();
 
         let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
-        let request_listener_guard = waitset
-            .attach_notification(&server.request_listener_notifier)
-            .unwrap();
         let transform_listener_guard = waitset
             .attach_notification(&server.transform_listener_event_listener)
             .unwrap();
@@ -111,9 +106,10 @@ fn test_multi_client_interaction() {
         let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
 
         let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-            if attachment_id.has_event_from(&request_listener_guard) {
-                server.handle_listener_event().unwrap();
-            } else if attachment_id.has_event_from(&transform_listener_guard) {
+            // Poll request-response server
+            server.handle_request_event().unwrap();
+
+            if attachment_id.has_event_from(&transform_listener_guard) {
                 server.handle_transform_listener_event().unwrap();
             } else if attachment_id.has_event_from(&visualizer_event_guard) {
                 server.handle_visualizer_event().unwrap();
@@ -218,9 +214,6 @@ fn test_complex_interpolation() {
         let server = Server::new().unwrap();
 
         let waitset = WaitSetBuilder::new().create::<ipc::Service>().unwrap();
-        let request_listener_guard = waitset
-            .attach_notification(&server.request_listener_notifier)
-            .unwrap();
         let transform_listener_guard = waitset
             .attach_notification(&server.transform_listener_event_listener)
             .unwrap();
@@ -231,9 +224,10 @@ fn test_complex_interpolation() {
         let timeout_guard = waitset.attach_interval(TIMEOUT).unwrap();
 
         let fn_call = |attachment_id: WaitSetAttachmentId<ipc::Service>| {
-            if attachment_id.has_event_from(&request_listener_guard) {
-                server.handle_listener_event().unwrap();
-            } else if attachment_id.has_event_from(&transform_listener_guard) {
+            // Poll request-response server
+            server.handle_request_event().unwrap();
+
+            if attachment_id.has_event_from(&transform_listener_guard) {
                 server.handle_transform_listener_event().unwrap();
             } else if attachment_id.has_event_from(&visualizer_event_guard) {
                 server.handle_visualizer_event().unwrap();
