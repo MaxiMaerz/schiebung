@@ -1,8 +1,11 @@
 #[tokio::main]
-async fn main() -> Result<(), String> {
+async fn main() {
     env_logger::Builder::new()
         .filter(None, log::LevelFilter::Info)
         .init();
 
-    comms::server::run_server().await
+    if let Err(e) = comms::server::run_server().await {
+        eprintln!("Server error: {}", e);
+        std::process::exit(1);
+    }
 }

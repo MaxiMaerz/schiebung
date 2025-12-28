@@ -1,4 +1,4 @@
-use comms::TransformPublisher;
+use comms::TransformClient;
 use nalgebra::{Translation3, UnitQuaternion};
 use schiebung::types::TransformType;
 use std::time::Duration;
@@ -10,10 +10,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     println!("Creating transform publisher...");
-    let publisher = TransformPublisher::new().await?;
+    let client = TransformClient::new().await?;
 
     println!("Publishing static transform: world -> robot_base");
-    publisher
+    client
         .send_transform(
             "world",
             "robot_base",
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("Publishing dynamic transform: robot_base -> tool");
-    publisher
+    client
         .send_transform(
             "robot_base",
             "tool",
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 1..5 {
         let time = i as f64 * 0.1;
         println!("Publishing dynamic transform at time {}", time);
-        publisher
+        client
             .send_transform(
                 "robot_base",
                 "tool",
@@ -55,6 +55,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Done publishing transforms!");
+
+    println!("Requesting transform: robot_base -> tool");
+    let response = client.request_transform("world", "tool", 0.15).await?;
+    println!("Received transform: {:?}", response);
 
     // Keep alive for a bit to ensure messages are sent
     tokio::time::sleep(Duration::from_secs(1)).await;

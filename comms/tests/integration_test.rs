@@ -1,9 +1,42 @@
-use comms::TransformPublisher;
+use comms::TransformClient;
 use log::{debug, error, info};
 use nalgebra::{Translation3, UnitQuaternion};
 use schiebung::{types::TransformType, BufferTree};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Helper function to retry a query with exponential backoff
+async fn retry_query<F, Fut, T>(
+    mut f: F,
+    max_attempts: u32,
+    initial_delay_ms: u64,
+) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, comms::error::CommsError>>,
+{
+    let mut delay = initial_delay_ms;
+    for attempt in 1..=max_attempts {
+        match f().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                if attempt == max_attempts {
+                    return Err(format!(
+                        "Query failed after {} attempts: {}",
+                        max_attempts, e
+                    ));
+                }
+                debug!(
+                    "Attempt {} failed: {}, retrying in {}ms...",
+                    attempt, e, delay
+                );
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                delay = (delay * 2).min(2000); // Cap at 2 seconds
+            }
+        }
+    }
+    unreachable!()
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_publish_and_query_transform() {
@@ -119,9 +152,10 @@ async fn test_publish_and_query_transform() {
 
     // Run client tests alongside query handler
     let test_future = async {
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Small initial delay to ensure server is ready
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let client = TransformPublisher::new()
+        let client = TransformClient::new()
             .await
             .expect("Failed to create client");
 
@@ -139,13 +173,14 @@ async fn test_publish_and_query_transform() {
             .expect("Failed to send static transform");
         println!("✓ Published static transform");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Query it back
-        let result = client
-            .request_transform("world", "robot_base", 0.0)
-            .await
-            .expect("Query failed");
+        // Query it back with retry logic
+        let result = retry_query(
+            || client.request_transform("world", "robot_base", 0.0),
+            5,
+            50,
+        )
+        .await
+        .expect("Query failed");
         let trans = result.translation();
         println!("✓ Queried: [{}, {}, {}]", trans[0], trans[1], trans[2]);
         assert!((trans[2] - 1.0).abs() < 1e-6);
@@ -164,11 +199,8 @@ async fn test_publish_and_query_transform() {
             .expect("Failed to send static transform");
         println!("✓ Published second static transform");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Query composed
-        let result = client
-            .request_transform("world", "tool", 0.0)
+        // Query composed with retry logic
+        let result = retry_query(|| client.request_transform("world", "tool", 0.0), 5, 50)
             .await
             .expect("Composed query failed");
         let trans = result.translation();

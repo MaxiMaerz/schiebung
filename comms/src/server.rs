@@ -1,9 +1,16 @@
 use crate::config::{ZenohConfig, TRANSFORM_PUB_TOPIC};
-use log::{debug, error, info};
+use crate::error::CommsError;
+use log::{debug, error, info, warn};
 use schiebung::{types::StampedIsometry, BufferTree};
 use std::sync::{Arc, Mutex};
 
-pub async fn run_server() -> Result<(), String> {
+/// Run the transform server
+///
+/// The server processes incoming transforms in an unbounded loop. While this means
+/// messages could theoretically accumulate faster than they can be processed, in practice
+/// transform updates are infrequent enough that this is not a concern. If backpressure
+/// becomes necessary in the future, consider adding a bounded channel with monitoring.
+pub async fn run_server() -> Result<(), CommsError> {
     info!("Starting schiebung server...");
 
     // Create transform buffer
@@ -11,13 +18,11 @@ pub async fn run_server() -> Result<(), String> {
 
     // Create zenoh session in peer mode (brokerless)
     let config = ZenohConfig::default();
-    let zenoh_config = config
-        .to_zenoh_config()
-        .map_err(|e| format!("Config error: {}", e))?;
+    let zenoh_config = config.to_zenoh_config()?;
 
     let session = zenoh::open(zenoh_config)
         .await
-        .map_err(|e| format!("Failed to open zenoh session: {}", e))?;
+        .map_err(|e| CommsError::Zenoh(format!("Failed to open zenoh session: {}", e)))?;
     info!("Zenoh session established in {} mode", config.mode);
 
     // Set up subscriber for new transforms
@@ -25,7 +30,7 @@ pub async fn run_server() -> Result<(), String> {
     let subscriber = session
         .declare_subscriber(TRANSFORM_PUB_TOPIC)
         .await
-        .map_err(|e| format!("Failed to declare subscriber: {}", e))?;
+        .map_err(|e| CommsError::Zenoh(format!("Failed to declare subscriber: {}", e)))?;
 
     info!("Subscribed to topic: {}", TRANSFORM_PUB_TOPIC);
 
@@ -34,13 +39,21 @@ pub async fn run_server() -> Result<(), String> {
     let queryable = session
         .declare_queryable(crate::config::TRANSFORM_QUERY_TOPIC)
         .await
-        .map_err(|e| format!("Failed to declare queryable: {}", e))?;
+        .map_err(|e| CommsError::Zenoh(format!("Failed to declare queryable: {}", e)))?;
 
     info!(
         "Queryable registered: {}",
         crate::config::TRANSFORM_QUERY_TOPIC
     );
     info!("Server is ready and processing requests");
+
+    // Set up graceful shutdown signal
+    let shutdown = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for Ctrl+C");
+        info!("Shutdown signal received");
+    };
 
     // Handle incoming transforms and queries concurrently
     let subscriber_task = tokio::spawn(async move {
@@ -77,7 +90,7 @@ pub async fn run_server() -> Result<(), String> {
                         }
                         Err(e) => {
                             error!("Error handling transform query: {}", e);
-                            if let Ok(error_response) = crate::serialize_transform_response(
+                            match crate::serialize_transform_response(
                                 0,
                                 0.0,
                                 &[0.0, 0.0, 0.0],
@@ -85,9 +98,17 @@ pub async fn run_server() -> Result<(), String> {
                                 false,
                                 &e.to_string(),
                             ) {
-                                let _ = query
-                                    .reply(crate::config::TRANSFORM_QUERY_TOPIC, error_response)
-                                    .await;
+                                Ok(error_response) => {
+                                    if let Err(e) = query
+                                        .reply(crate::config::TRANSFORM_QUERY_TOPIC, error_response)
+                                        .await
+                                    {
+                                        error!("Failed to send error response: {}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to serialize error response: {}", e);
+                                }
                             }
                         }
                     }
@@ -100,19 +121,23 @@ pub async fn run_server() -> Result<(), String> {
         }
     };
 
-    // Wait for either task to complete (they run indefinitely)
+    // Wait for either task to complete or shutdown signal
     tokio::select! {
-        _ = subscriber_task => {},
-        _ = query_future => {},
+        _ = subscriber_task => {
+            warn!("Subscriber task terminated");
+        },
+        _ = query_future => {
+            warn!("Query handler terminated");
+        },
+        _ = shutdown => {
+            info!("Shutting down gracefully...");
+        },
     }
 
     Ok(())
 }
 
-fn handle_new_transform(
-    buffer: &Arc<Mutex<BufferTree>>,
-    data: &[u8],
-) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_new_transform(buffer: &Arc<Mutex<BufferTree>>, data: &[u8]) -> Result<(), CommsError> {
     let (from, to, time, translation, rotation, kind) = crate::deserialize_new_transform(data)?;
 
     debug!(
@@ -122,9 +147,15 @@ fn handle_new_transform(
 
     let transform_type = kind.into();
 
-    let mut buf = buffer
-        .lock()
-        .map_err(|e| format!("Buffer lock poisoned: {}", e))?;
+    // Handle mutex poisoning by recovering the data
+    let mut buf = match buffer.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!("Buffer mutex was poisoned, recovering...");
+            poisoned.into_inner()
+        }
+    };
+
     buf.update(
         &from,
         &to,
@@ -142,7 +173,7 @@ fn handle_new_transform(
 fn handle_transform_query(
     buffer: &Arc<Mutex<BufferTree>>,
     data: &[u8],
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>, CommsError> {
     let (id, from, to, time) = crate::deserialize_transform_request(data)?;
 
     debug!(
@@ -150,9 +181,14 @@ fn handle_transform_query(
         from, to, time, id
     );
 
-    let buf = buffer
-        .lock()
-        .map_err(|e| format!("Buffer lock poisoned: {}", e))?;
+    // Handle mutex poisoning by recovering the data
+    let buf = match buffer.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!("Buffer mutex was poisoned, recovering...");
+            poisoned.into_inner()
+        }
+    };
 
     match buf.lookup_transform(&from, &to, time) {
         Ok(stamped_iso) => {

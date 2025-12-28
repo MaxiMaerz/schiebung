@@ -2,18 +2,18 @@ pub mod messages_capnp {
     include!(concat!(env!("OUT_DIR"), "/messages_capnp.rs"));
 }
 
-use std::error::Error;
-
 // Re-export the generated Cap'n Proto types
 pub use messages_capnp::*;
 
 // Re-export modules
 pub mod client;
 pub mod config;
+pub mod error;
 pub mod server;
 
-pub use client::TransformPublisher;
+pub use client::TransformClient;
 pub use config::ZenohConfig;
+pub use error::CommsError;
 
 const TRANSLATION_SIZE: u32 = 3;
 const ROTATION_SIZE: u32 = 4;
@@ -47,7 +47,7 @@ pub fn serialize_new_transform(
     translation: &[f64; 3],
     rotation: &[f64; 4],
     kind: messages_capnp::TransformKind,
-) -> Result<Vec<u8>, Box<dyn Error>> {
+) -> Result<Vec<u8>, CommsError> {
     let mut message = capnp::message::Builder::new_default();
     let mut transform = message.init_root::<new_transform::Builder>();
 
@@ -57,17 +57,16 @@ pub fn serialize_new_transform(
 
     {
         let mut trans = transform.reborrow().init_translation(TRANSLATION_SIZE);
-        trans.set(0, translation[0]);
-        trans.set(1, translation[1]);
-        trans.set(2, translation[2]);
+        for (i, &val) in translation.iter().enumerate() {
+            trans.set(i as u32, val);
+        }
     }
 
     {
         let mut rot = transform.reborrow().init_rotation(ROTATION_SIZE);
-        rot.set(0, rotation[0]);
-        rot.set(1, rotation[1]);
-        rot.set(2, rotation[2]);
-        rot.set(3, rotation[3]);
+        for (i, &val) in rotation.iter().enumerate() {
+            rot.set(i as u32, val);
+        }
     }
 
     transform.set_kind(kind);
@@ -89,7 +88,7 @@ pub fn deserialize_new_transform(
         [f64; 4],
         messages_capnp::TransformKind,
     ),
-    Box<dyn Error>,
+    CommsError,
 > {
     let reader =
         capnp::serialize::read_message(&mut &data[..], capnp::message::ReaderOptions::new())?;
@@ -122,7 +121,7 @@ pub fn serialize_transform_request(
     from: &str,
     to: &str,
     time: f64,
-) -> Result<Vec<u8>, Box<dyn Error>> {
+) -> Result<Vec<u8>, CommsError> {
     let mut message = capnp::message::Builder::new_default();
     let mut request = message.init_root::<transform_request::Builder>();
 
@@ -138,7 +137,7 @@ pub fn serialize_transform_request(
 
 pub fn deserialize_transform_request(
     data: &[u8],
-) -> Result<(u64, String, String, f64), Box<dyn Error>> {
+) -> Result<(u64, String, String, f64), CommsError> {
     let reader =
         capnp::serialize::read_message(&mut &data[..], capnp::message::ReaderOptions::new())?;
     let request = reader.get_root::<transform_request::Reader>()?;
@@ -158,7 +157,7 @@ pub fn serialize_transform_response(
     rotation: &[f64; 4],
     success: bool,
     error_message: &str,
-) -> Result<Vec<u8>, Box<dyn Error>> {
+) -> Result<Vec<u8>, CommsError> {
     let mut message = capnp::message::Builder::new_default();
     let mut response = message.init_root::<transform_response::Builder>();
 
@@ -169,17 +168,16 @@ pub fn serialize_transform_response(
 
     {
         let mut trans = response.reborrow().init_translation(TRANSLATION_SIZE);
-        trans.set(0, translation[0]);
-        trans.set(1, translation[1]);
-        trans.set(2, translation[2]);
+        for (i, &val) in translation.iter().enumerate() {
+            trans.set(i as u32, val);
+        }
     }
 
     {
         let mut rot = response.reborrow().init_rotation(ROTATION_SIZE);
-        rot.set(0, rotation[0]);
-        rot.set(1, rotation[1]);
-        rot.set(2, rotation[2]);
-        rot.set(3, rotation[3]);
+        for (i, &val) in rotation.iter().enumerate() {
+            rot.set(i as u32, val);
+        }
     }
 
     let mut buffer = Vec::new();
@@ -189,7 +187,7 @@ pub fn serialize_transform_response(
 
 pub fn deserialize_transform_response(
     data: &[u8],
-) -> Result<(u64, f64, [f64; 3], [f64; 4], bool, String), Box<dyn Error>> {
+) -> Result<(u64, f64, [f64; 3], [f64; 4], bool, String), CommsError> {
     let reader =
         capnp::serialize::read_message(&mut &data[..], capnp::message::ReaderOptions::new())?;
     let response = reader.get_root::<transform_response::Reader>()?;

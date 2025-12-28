@@ -19,16 +19,16 @@ The server:
 
 ### Client Library
 
-The `TransformPublisher` allows publishing transforms:
+The `TransformClient` allows publishing transforms:
 
 ```rust
-use comms::TransformPublisher;
+use comms::TransformClient;
 use nalgebra::{ Translation3, UnitQuaternion};
 use schiebung::types::TransformType;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let publisher = TransformPublisher::new().await?;
+    let publisher = TransformClient::new().await?;
 
     publisher.send_transform(
         "world",
@@ -57,7 +57,9 @@ cargo run --example publish_transforms
 ## Architecture
 
 - **Messages**: Cap'n Proto schema in `messages.capnp`
-- **Pattern**: Pub-Sub only (no request-response)
+- **Communication Patterns**:
+  - **Pub-Sub**: For broadcasting new transforms to all subscribers
+  - **Request-Response**: For querying specific transforms via Zenoh queryables
 - **Network**: Brokerless zenoh in peer mode
 - **Config**: Serde-based `ZenohConfig`
 
