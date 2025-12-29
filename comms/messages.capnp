@@ -18,18 +18,16 @@ struct NewTransform {
 
 # Request for a transform lookup
 struct TransformRequest {
-  id @0 :UInt64;
-  from @1 :Text;
-  to @2 :Text;
-  time @3 :Float64;
+  from @0 :Text;
+  to @1 :Text;
+  time @2 :Float64;
 }
 
 # Response to a transform request
 struct TransformResponse {
-  id @0 :UInt64;
-  time @1 :Float64;
-  translation @2 :List(Float64);  # [x, y, z]
-  rotation @3 :List(Float64);     # [x, y, z, w] quaternion
-  success @4 :Bool;
-  errorMessage @5 :Text;
+  time @0 :Float64;
+  translation @1 :List(Float64);  # [x, y, z]
+  rotation @2 :List(Float64);     # [x, y, z, w] quaternion
+  success @3 :Bool;
+  errorMessage @4 :Text;
 }

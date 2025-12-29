@@ -1,6 +1,5 @@
 use crate::config::{ZenohConfig, TRANSFORM_PUB_TOPIC};
 use crate::error::CommsError;
-use nalgebra::{Translation3, UnitQuaternion};
 use schiebung::types::TransformType;
 
 /// Client for publishing new transforms to the server
@@ -26,23 +25,15 @@ impl TransformClient {
         &self,
         from: &str,
         to: &str,
-        translation: Translation3<f64>,
-        rotation: UnitQuaternion<f64>,
-        stamp: f64,
+        stamped_isometry: schiebung::types::StampedIsometry,
         kind: TransformType,
     ) -> Result<(), CommsError> {
-        let trans_array = [translation.x, translation.y, translation.z];
-        let rot_quat = rotation.into_inner();
-        let rot_array = [rot_quat.i, rot_quat.j, rot_quat.k, rot_quat.w];
-
         let transform_kind = kind.into();
 
-        let payload = crate::serialize_new_transform(
+        let payload = crate::serializers::serialize_new_transform(
             from,
             to,
-            stamp,
-            &trans_array,
-            &rot_array,
+            &stamped_isometry,
             transform_kind,
         )?;
 
@@ -55,22 +46,13 @@ impl TransformClient {
     }
 
     /// Request a transform from the server
-    ///
-    /// # Note on Request IDs
-    /// Request IDs are generated using an atomic counter that will wrap around after
-    /// 2^64 requests. This is acceptable as the ID is only used for matching responses
-    /// within a short time window, and wraparound is extremely unlikely in practice.
     pub async fn request_transform(
         &self,
         from: &str,
         to: &str,
         time: f64,
     ) -> Result<schiebung::types::StampedIsometry, CommsError> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
-
-        let id = REQUEST_ID.fetch_add(1, Ordering::SeqCst);
-        let request_data = crate::serialize_transform_request(id, from, to, time)?;
+        let request_data = crate::serializers::serialize_transform_request(from, to, time)?;
 
         let replies = self
             .session
@@ -84,29 +66,15 @@ impl TransformClient {
             match reply.result() {
                 Ok(sample) => {
                     let response_data = sample.payload().to_bytes();
-                    let (resp_id, resp_time, translation, rotation, success, error_message) =
-                        crate::deserialize_transform_response(&response_data)?;
-
-                    // Verify response ID matches request ID
-                    if resp_id != id {
-                        return Err(CommsError::ResponseIdMismatch {
-                            expected: id,
-                            actual: resp_id,
-                        });
+                    match crate::serializers::deserialize_transform_response(&response_data)? {
+                        Ok(stamped_isometry) => return Ok(stamped_isometry),
+                        Err(error_message) => {
+                            return Err(CommsError::Zenoh(format!(
+                                "Transform request failed: {}",
+                                error_message
+                            )));
+                        }
                     }
-
-                    if !success {
-                        return Err(CommsError::Zenoh(format!(
-                            "Transform request failed: {}",
-                            error_message
-                        )));
-                    }
-
-                    return Ok(schiebung::types::StampedIsometry::new(
-                        translation,
-                        rotation,
-                        resp_time,
-                    ));
                 }
                 Err(e) => {
                     return Err(CommsError::Zenoh(format!("Query error: {}", e)));
