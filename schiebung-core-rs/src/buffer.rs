@@ -147,6 +147,11 @@ impl NodeIndex {
     }
 }
 
+/// Trait to observe changes in the buffer
+pub trait BufferObserver: Send + Sync {
+    fn on_update(&self, from: &str, to: &str, transform: &StampedIsometry, kind: TransformType);
+}
+
 /// The core BufferImplementation
 /// The TF Graph is represented as a DiGraphMap:
 /// This means the transforms build a acyclic direct graph
@@ -157,6 +162,7 @@ pub struct BufferTree {
     graph: DiGraphMap<usize, TransformHistory>,
     index: NodeIndex,
     config: BufferConfig,
+    observers: Vec<Box<dyn BufferObserver>>,
 }
 
 impl BufferTree {
@@ -165,7 +171,25 @@ impl BufferTree {
             graph: DiGraphMap::new(),
             index: NodeIndex::new(),
             config: get_config().unwrap(),
+            observers: Vec::new(),
         }
+    }
+
+    /// Register a new observer
+    /// The observer will be notified about all current transforms in the buffer
+    pub fn register_observer(&mut self, observer: Box<dyn BufferObserver>) {
+        // Notify the new observer about all existing transforms
+        for (from_idx, to_idx, history) in self.graph.all_edges() {
+            let from_node = self.index.get_node(from_idx);
+            let to_node = self.index.get_node(to_idx);
+
+            if let (Some(from_node), Some(to_node)) = (from_node, to_node) {
+                for item in &history.history {
+                    observer.on_update(&from_node.name, &to_node.name, item, history.kind);
+                }
+            }
+        }
+        self.observers.push(observer);
     }
 
     /// Recursively update the ancestors of a node and its children
@@ -277,6 +301,10 @@ impl BufferTree {
                 new_ancestor_ids.push(from_idx);
             }
             self.update_subtree_ancestors(to_idx, new_ancestors, new_ancestor_ids);
+        }
+        // Notify observers
+        for observer in &self.observers {
+            observer.on_update(from, to, &stamped_isometry, kind);
         }
 
         self.graph

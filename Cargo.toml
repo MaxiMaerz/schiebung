@@ -6,5 +6,5 @@ members = [
     "schiebung-core-py",
     "schiebung-client",
     "schiebung-server",
+    "schiebung-rerun",
 ]
-

@@ -16,6 +16,7 @@ serde = { version = "1.0.217", features = ["derive"] }
 serde_derive = "1.0.217"
 rustc-hash = "2.0"
 smallvec = "1.13"
+urdf-rs = "0.9"
 
 [lib]
 crate-type = ["rlib"]
