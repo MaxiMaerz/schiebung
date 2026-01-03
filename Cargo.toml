@@ -5,4 +5,5 @@ members = [
     "schiebung-core-rs",
     "schiebung-core-py",
     "comms",
+    "schiebung-rerun",
 ]

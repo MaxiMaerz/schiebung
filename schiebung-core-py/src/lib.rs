@@ -2,8 +2,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use ::schiebung::{
-    BufferTree as CoreBufferTree, StampedIsometry as CoreStampedIsometry, TfError as CoreTfError,
-    TransformType as CoreTransformType,
+    BufferTree as CoreBufferTree, FormatLoader as CoreFormatLoader,
+    StampedIsometry as CoreStampedIsometry, TfError as CoreTfError,
+    TransformType as CoreTransformType, UrdfLoader as CoreUrdfLoader,
 };
 
 /// Python wrapper for TfError
@@ -18,6 +19,8 @@ pub enum TfError {
     CouldNotFindTransform,
     /// The graph is cyclic or the target has multiple incoming edges.
     InvalidGraph,
+    /// Error loading or parsing a file format (URDF, USD, etc.)
+    LoaderError,
 }
 
 impl From<CoreTfError> for TfError {
@@ -27,6 +30,7 @@ impl From<CoreTfError> for TfError {
             CoreTfError::AttemptedLookUpInFuture(_) => TfError::AttemptedLookUpInFuture,
             CoreTfError::CouldNotFindTransform(_) => TfError::CouldNotFindTransform,
             CoreTfError::InvalidGraph(_) => TfError::InvalidGraph,
+            CoreTfError::LoaderError(_) => TfError::LoaderError,
         }
     }
 }
@@ -45,6 +49,9 @@ fn core_err_to_pyerr(err: CoreTfError) -> PyErr {
         CoreTfError::InvalidGraph(msg) => {
             PyValueError::new_err(format!("TfError.InvalidGraph: {}", msg))
         }
+        CoreTfError::LoaderError(msg) => {
+            PyValueError::new_err(format!("TfError.LoaderError: {}", msg))
+        }
     }
 }
 
@@ -55,6 +62,7 @@ impl TfError {
             TfError::AttemptedLookUpInFuture => "TfError.AttemptedLookUpInFuture".to_string(),
             TfError::CouldNotFindTransform => "TfError.CouldNotFindTransform".to_string(),
             TfError::InvalidGraph => "TfError.InvalidGraph".to_string(),
+            TfError::LoaderError => "TfError.LoaderError".to_string(),
         }
     }
 }
@@ -250,6 +258,30 @@ impl BufferTree {
     }
 }
 
+/// Python wrapper for UrdfLoader
+#[pyclass]
+pub struct UrdfLoader {
+    inner: CoreUrdfLoader,
+}
+
+#[pymethods]
+impl UrdfLoader {
+    #[new]
+    pub fn new() -> Self {
+        UrdfLoader {
+            inner: CoreUrdfLoader::new(),
+        }
+    }
+
+    /// Load transforms from a URDF file into the provided buffer
+    pub fn load_into_buffer(&self, path: String, buffer: &mut BufferTree) -> PyResult<()> {
+        self.inner
+            .load_into_buffer(&path, &mut buffer.inner)
+            .map_err(core_err_to_pyerr)?;
+        Ok(())
+    }
+}
+
 /// Python bindings for schiebung-core
 #[pymodule]
 fn schiebung(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
@@ -257,5 +289,6 @@ fn schiebung(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<StampedIsometry>()?;
     m.add_class::<TransformType>()?;
     m.add_class::<TfError>()?;
+    m.add_class::<UrdfLoader>()?;
     Ok(())
 }
