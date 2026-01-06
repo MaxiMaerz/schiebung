@@ -1,0 +1,22 @@
+[package]
+name = "comms"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[dependencies]
+capnp = "0.20"
+nalgebra = "0.33"
+zenoh = "1.7.1"
+tokio = { version = "1.42", features = ["full"] }
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+schiebung = { path = "../schiebung-core-rs" }
+thiserror = "2.0"
+
+[build-dependencies]
+capnpc = "0.20"

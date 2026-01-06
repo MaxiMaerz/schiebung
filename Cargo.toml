@@ -4,7 +4,6 @@ resolver = "2"
 members = [
     "schiebung-core-rs",
     "schiebung-core-py",
-    "schiebung-client",
-    "schiebung-server",
+    "comms",
     "schiebung-rerun",
 ]
