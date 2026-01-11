@@ -1,10 +1,12 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rerun::RecordingStreamBuilder;
 
-use ::schiebung::{
-    BufferObserver as CoreBufferObserver, BufferTree as CoreBufferTree,
-    FormatLoader as CoreFormatLoader, StampedIsometry as CoreStampedIsometry,
-    TfError as CoreTfError, TransformType as CoreTransformType, UrdfLoader as CoreUrdfLoader,
+use ::schiebung_rerun::RerunObserver;
+use schiebung::{
+    BufferTree as CoreBufferTree, FormatLoader as CoreFormatLoader,
+    StampedIsometry as CoreStampedIsometry, TfError as CoreTfError,
+    TransformType as CoreTransformType, UrdfLoader as CoreUrdfLoader,
 };
 
 /// Python wrapper for TfError
@@ -172,69 +174,43 @@ impl StampedIsometry {
     }
 }
 
-/// Python callback observer wrapper
-/// This struct wraps a Python callable and implements the BufferObserver trait
-/// allowing Python functions to be registered as observers
-struct PyBufferObserver {
-    callback: Py<PyAny>,
-}
-
-impl PyBufferObserver {
-    fn new(callback: Py<PyAny>) -> Self {
-        PyBufferObserver { callback }
-    }
-}
-
-// Safety: Py<PyAny> is Send, so PyBufferObserver can be Send
-unsafe impl Send for PyBufferObserver {}
-// Safety: Py<PyAny> usage is safe across threads with GIL acquisition
-unsafe impl Sync for PyBufferObserver {}
-
-impl CoreBufferObserver for PyBufferObserver {
-    fn on_update(
-        &self,
-        from: &str,
-        to: &str,
-        transform: &CoreStampedIsometry,
-        kind: CoreTransformType,
-    ) {
-        // Acquire the GIL to call the Python function
-        let py = unsafe { Python::assume_attached() };
-
-        // Convert Rust types to Python types
-        let py_transform = StampedIsometry::from(transform.clone());
-        let py_kind = TransformType::from(kind);
-
-        // Call the Python callback
-        // We catch errors and log them rather than panicking
-        if let Err(e) = self.callback.call1(
-            py,
-            (from.to_string(), to.to_string(), py_transform, py_kind),
-        ) {
-            // Print the error to stderr
-            eprintln!("Error calling Python observer callback: {}", e);
-            // Print the Python traceback if available
-            e.print(py);
-        }
-    }
-}
-
-/// Python wrapper for BufferTree
+/// Python wrapper for BufferTree with integrated Rerun logging
+///
+/// This is the same as BufferTree from schiebung-core-py but automatically
+/// logs all transforms to a Rerun recording stream.
 #[pyclass]
-pub struct BufferTree {
+pub struct RerunBufferTree {
     inner: CoreBufferTree,
 }
 
 #[pymethods]
-impl BufferTree {
+impl RerunBufferTree {
+    /// Create a new RerunBufferTree with a Rerun recording stream
+    ///
+    /// Args:
+    ///     recording_id: The ID for the Rerun recording (e.g., "my_recording")
+    ///     timeline: The name of the timeline for logging transforms (e.g., "stable_time")
+    ///     publish_static_transforms: Whether to log static transforms to Rerun.
+    ///                                Set to False if loading URDF via Rerun's built-in loader.
     #[new]
-    pub fn new() -> Self {
-        BufferTree {
-            inner: CoreBufferTree::new(),
-        }
+    pub fn new(
+        recording_id: String,
+        timeline: String,
+        publish_static_transforms: bool,
+    ) -> PyResult<Self> {
+        let rec = RecordingStreamBuilder::new(&*recording_id)
+            .spawn()
+            .map_err(|e| PyValueError::new_err(format!("Failed to create Rerun stream: {}", e)))?;
+
+        let mut inner = CoreBufferTree::new();
+        let observer = RerunObserver::new(rec, publish_static_transforms, timeline);
+        inner.register_observer(Box::new(observer));
+
+        Ok(RerunBufferTree { inner })
     }
 
     /// Either update or push a transform to the graph
+    /// The transform will also be logged to Rerun.
     /// Panics if the graph becomes cyclic
     pub fn update(
         &mut self,
@@ -303,39 +279,6 @@ impl BufferTree {
             .save_visualization()
             .map_err(|e| PyValueError::new_err(format!("Failed to save visualization: {}", e)))
     }
-
-    /// Register a Python callable as an observer
-    ///
-    /// The callable will be invoked whenever a transform is updated.
-    /// The callable signature should be: callback(from: str, to: str, transform: StampedIsometry, kind: TransformType) -> None
-    ///
-    /// When registered, the observer will immediately receive callbacks for all existing transforms in the buffer.
-    ///
-    /// # Arguments
-    /// * `callback` - A Python callable that will be called on each transform update
-    ///
-    /// # Example
-    /// ```python
-    /// def my_observer(from_frame, to_frame, transform, kind):
-    ///     print(f"Transform update: {from_frame} -> {to_frame}")
-    ///
-    /// buffer = BufferTree()
-    /// buffer.register_observer(my_observer)
-    /// ```
-    pub fn register_observer(&mut self, callback: Py<PyAny>) -> PyResult<()> {
-        // Verify the callback is callable
-        let py = unsafe { Python::assume_attached() };
-        if !callback.bind(py).is_callable() {
-            return Err(PyValueError::new_err(
-                "Observer must be a callable (function or callable object)",
-            ));
-        }
-
-        // Create the observer wrapper and register it
-        let observer = PyBufferObserver::new(callback);
-        self.inner.register_observer(Box::new(observer));
-        Ok(())
-    }
 }
 
 /// Python wrapper for UrdfLoader
@@ -354,7 +297,7 @@ impl UrdfLoader {
     }
 
     /// Load transforms from a URDF file into the provided buffer
-    pub fn load_into_buffer(&self, path: String, buffer: &mut BufferTree) -> PyResult<()> {
+    pub fn load_into_buffer(&self, path: String, buffer: &mut RerunBufferTree) -> PyResult<()> {
         self.inner
             .load_into_buffer(&path, &mut buffer.inner)
             .map_err(core_err_to_pyerr)?;
@@ -362,10 +305,10 @@ impl UrdfLoader {
     }
 }
 
-/// Python bindings for schiebung-core
-#[pymodule]
-fn schiebung(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    m.add_class::<BufferTree>()?;
+/// Python bindings for schiebung with Rerun visualization
+#[pymodule(name = "schiebung_rerun")]
+fn schiebung_rerun_module(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    m.add_class::<RerunBufferTree>()?;
     m.add_class::<StampedIsometry>()?;
     m.add_class::<TransformType>()?;
     m.add_class::<TfError>()?;
