@@ -17,7 +17,7 @@ pub fn serialize_new_transform(
 
     transform.set_from(from);
     transform.set_to(to);
-    transform.set_time(stamped_isometry.stamp());
+    transform.set_time_ns(stamped_isometry.stamp());
 
     let translation = stamped_isometry.translation();
     {
@@ -68,7 +68,7 @@ pub fn deserialize_new_transform(
         [rot.get(0), rot.get(1), rot.get(2), rot.get(3)]
     };
 
-    let stamped_isometry = StampedIsometry::new(translation, rotation, transform.get_time());
+    let stamped_isometry = StampedIsometry::new(translation, rotation, transform.get_time_ns());
     let kind = transform.get_kind()?;
 
     Ok((
@@ -80,13 +80,14 @@ pub fn deserialize_new_transform(
 }
 
 /// Serialize a transform request
-pub fn serialize_transform_request(from: &str, to: &str, time: f64) -> Result<Vec<u8>, CommsError> {
+/// Time is in nanoseconds since Unix epoch
+pub fn serialize_transform_request(from: &str, to: &str, time: i64) -> Result<Vec<u8>, CommsError> {
     let mut message = capnp::message::Builder::new_default();
     let mut request = message.init_root::<transform_request::Builder>();
 
     request.set_from(from);
     request.set_to(to);
-    request.set_time(time);
+    request.set_time_ns(time);
 
     let mut buffer = Vec::new();
     capnp::serialize::write_message(&mut buffer, &message)?;
@@ -94,7 +95,7 @@ pub fn serialize_transform_request(from: &str, to: &str, time: f64) -> Result<Ve
 }
 
 /// Deserialize a transform request
-pub fn deserialize_transform_request(data: &[u8]) -> Result<(String, String, f64), CommsError> {
+pub fn deserialize_transform_request(data: &[u8]) -> Result<(String, String, i64), CommsError> {
     let reader =
         capnp::serialize::read_message(&mut &data[..], capnp::message::ReaderOptions::new())?;
     let request = reader.get_root::<transform_request::Reader>()?;
@@ -102,7 +103,7 @@ pub fn deserialize_transform_request(data: &[u8]) -> Result<(String, String, f64
     Ok((
         request.get_from()?.to_str()?.to_string(),
         request.get_to()?.to_str()?.to_string(),
-        request.get_time(),
+        request.get_time_ns(),
     ))
 }
 
@@ -115,7 +116,7 @@ pub fn serialize_transform_response(
     let mut message = capnp::message::Builder::new_default();
     let mut response = message.init_root::<transform_response::Builder>();
 
-    response.set_time(stamped_isometry.stamp());
+    response.set_time_ns(stamped_isometry.stamp());
     response.set_success(success);
     response.set_error_message(error_message);
 
@@ -162,7 +163,7 @@ pub fn deserialize_transform_response(
             [rot.get(0), rot.get(1), rot.get(2), rot.get(3)]
         };
 
-        let stamped_isometry = StampedIsometry::new(translation, rotation, response.get_time());
+        let stamped_isometry = StampedIsometry::new(translation, rotation, response.get_time_ns());
         Ok(Ok(stamped_isometry))
     } else {
         let error_message = response.get_error_message()?.to_str()?.to_string();
@@ -177,15 +178,15 @@ mod tests {
 
     #[test]
     fn test_transform_response_roundtrip() {
-        // Test successful response
-        let stamped_iso = StampedIsometry::new([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 42.0);
+        // Test successful response (42 nanoseconds)
+        let stamped_iso = StampedIsometry::new([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 42);
 
         let serialized = serialize_transform_response(&stamped_iso, true, "").unwrap();
         let deserialized = deserialize_transform_response(&serialized).unwrap();
 
         match deserialized {
             Ok(result) => {
-                assert_eq!(result.stamp(), 42.0);
+                assert_eq!(result.stamp(), 42);
                 let trans = result.translation();
                 assert_eq!(trans, [1.0, 2.0, 3.0]);
                 let rot = result.rotation();
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn test_transform_response_error() {
         // Test error response
-        let dummy = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0);
+        let dummy = StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
 
         let serialized = serialize_transform_response(&dummy, false, "test error").unwrap();
         let deserialized = deserialize_transform_response(&serialized).unwrap();

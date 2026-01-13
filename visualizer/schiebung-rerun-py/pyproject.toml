@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "schiebung_rerun"
+version = "0.1.0"
+description = "Python bindings for schiebung with Rerun visualization"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Michael Maerz"},
+]
+
+keywords = ["robotics", "transform", "visualization", "rerun"]
+
+[project.urls]
+Homepage = "https://github.com/MaxiMaerz/schiebung/"
+Repository = "https://github.com/MaxiMaerz/schiebung/"
+"Bug Tracker" = "https://github.com/MaxiMaerz/schiebung/issues"
+
+[tool.maturin]
+module-name = "schiebung_rerun"
+manifest-path = "Cargo.toml"
+bindings = "pyo3"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "rerun-sdk>=0.28.1",
+]

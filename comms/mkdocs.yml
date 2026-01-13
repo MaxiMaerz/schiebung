@@ -1,0 +1,6 @@
+site_name: Schiebung Comms
+
+nav:
+  - Overview: index.md
+
+docs_dir: docs

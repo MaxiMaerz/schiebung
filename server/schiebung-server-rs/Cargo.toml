@@ -1,0 +1,29 @@
+[package]
+name = "schiebung-server"
+version = "0.1.0"
+edition = "2021"
+description = "Centralized transform server with Rerun visualization"
+license = "MIT"
+repository = "https://github.com/MaxiMaerz/schiebung"
+documentation = "https://maximaerz.github.io/schiebung/"
+homepage = "https://github.com/MaxiMaerz/schiebung"
+keywords = ["transform", "tf", "visualization", "rerun", "zenoh"]
+categories = ["science::robotics"]
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[dependencies]
+schiebung = { path = "../../core/schiebung-core-rs" }
+schiebung-rerun = { path = "../../visualizer/schiebung-rerun-rs" }
+comms = { path = "../../comms" }
+zenoh = "1.7.1"
+tokio = { version = "1.42", features = ["full"] }
+rerun = "0.28.1"
+log = "0.4"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+config = "0.14"
+clap = { version = "4.5", features = ["derive"] }
+env_logger = "0.11"

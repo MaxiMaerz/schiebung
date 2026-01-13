@@ -2,6 +2,11 @@
 name = "comms"
 version = "0.1.0"
 edition = "2021"
+description = "Client-server communication for schiebung transforms"
+license = "MIT"
+repository = "https://github.com/MaxiMaerz/schiebung"
+documentation = "https://maximaerz.github.io/schiebung/"
+homepage = "https://github.com/MaxiMaerz/schiebung"
 
 [[bin]]
 name = "server"
@@ -15,7 +20,7 @@ tokio = { version = "1.42", features = ["full"] }
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0", features = ["derive"] }
-schiebung = { path = "../schiebung-core-rs" }
+schiebung = { path = "../core/schiebung-core-rs" }
 thiserror = "2.0"
 
 [build-dependencies]

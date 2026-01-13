@@ -30,8 +30,8 @@ async fn test_publish_and_query_transform() {
         .await
         .expect("Failed to create client");
 
-    // Publish static transform
-    let transform = StampedIsometry::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0.0);
+    // Publish static transform (0 nanoseconds)
+    let transform = StampedIsometry::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
     client
         .send_transform("world", "robot_base", transform, TransformType::Static)
         .await
@@ -43,7 +43,7 @@ async fn test_publish_and_query_transform() {
     // Query with retry to handle potential initial discovery latency
     let mut attempts = 0;
     loop {
-        match client.request_transform("world", "robot_base", 0.0).await {
+        match client.request_transform("world", "robot_base", 0).await {
             Ok(result) => {
                 let trans = result.translation();
                 assert!((trans[2] - 1.0).abs() < 1e-6);
@@ -60,7 +60,7 @@ async fn test_publish_and_query_transform() {
     }
 
     // Publish second transform
-    let transform = StampedIsometry::new([0.5, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0);
+    let transform = StampedIsometry::new([0.5, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
     client
         .send_transform("robot_base", "tool", transform, TransformType::Static)
         .await
@@ -71,7 +71,7 @@ async fn test_publish_and_query_transform() {
     // Query composed
     attempts = 0;
     loop {
-        match client.request_transform("world", "tool", 0.0).await {
+        match client.request_transform("world", "tool", 0).await {
             Ok(result) => {
                 let trans = result.translation();
                 assert!((trans[0] - 0.5).abs() < 1e-6);
@@ -89,7 +89,7 @@ async fn test_publish_and_query_transform() {
     }
 
     // Test error handling
-    let result = client.request_transform("world", "nonexistent", 0.0).await;
+    let result = client.request_transform("world", "nonexistent", 0).await;
     assert!(result.is_err());
 
     // Abort server

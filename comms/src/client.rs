@@ -46,11 +46,12 @@ impl TransformClient {
     }
 
     /// Request a transform from the server
+    /// Time is in nanoseconds since Unix epoch
     pub async fn request_transform(
         &self,
         from: &str,
         to: &str,
-        time: f64,
+        time: i64,
     ) -> Result<schiebung::types::StampedIsometry, CommsError> {
         let request_data = crate::serializers::serialize_transform_request(from, to, time)?;
 

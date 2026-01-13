@@ -2,12 +2,12 @@ use crate::config::{ZenohConfig, TRANSFORM_PUB_TOPIC};
 use crate::error::CommsError;
 use log::{debug, error, info, warn};
 use schiebung::{types::StampedIsometry, BufferTree};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 /// Server regarding Schiebung transforms
 #[derive(Clone)]
 pub struct TransformServer {
-    buffer: Arc<Mutex<BufferTree>>,
+    buffer: Arc<RwLock<BufferTree>>,
     session: zenoh::Session,
 }
 
@@ -15,7 +15,7 @@ impl TransformServer {
     /// Create a new transform server
     pub async fn new() -> Result<Self, CommsError> {
         // Create transform buffer
-        let buffer = Arc::new(Mutex::new(BufferTree::new()));
+        let buffer = Arc::new(RwLock::new(BufferTree::new()));
 
         // Create zenoh session in peer mode (brokerless)
         let config = ZenohConfig::default();
@@ -27,6 +27,11 @@ impl TransformServer {
         info!("Zenoh session established in {} mode", config.mode);
 
         Ok(Self { buffer, session })
+    }
+
+    /// Get a reference to the underlying buffer tree
+    pub fn buffer(&self) -> Arc<RwLock<BufferTree>> {
+        self.buffer.clone()
     }
 
     /// Run the transform server
@@ -101,11 +106,8 @@ impl TransformServer {
                             }
                             Err(e) => {
                                 error!("Error handling transform query: {}", e);
-                                let dummy = StampedIsometry::new(
-                                    [0.0, 0.0, 0.0],
-                                    [0.0, 0.0, 0.0, 1.0],
-                                    0.0,
-                                );
+                                let dummy =
+                                    StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
                                 match crate::serializers::serialize_transform_response(
                                     &dummy,
                                     false,
@@ -160,16 +162,16 @@ impl TransformServer {
             "Received new transform: {} -> {} at time {}",
             from,
             to,
-            stamped_isometry.stamp()
+            StampedIsometry::stamp(&stamped_isometry)
         );
 
         let transform_type = kind.into();
 
-        // Handle mutex poisoning by recovering the data
-        let mut buf = match self.buffer.lock() {
+        // Handle rwlock poisoning by recovering the data
+        let mut buf = match self.buffer.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                warn!("Buffer mutex was poisoned, recovering...");
+                warn!("Buffer rwlock was poisoned, recovering...");
                 poisoned.into_inner()
             }
         };
@@ -191,11 +193,11 @@ impl TransformServer {
             from, to, time
         );
 
-        // Handle mutex poisoning by recovering the data
-        let buf = match self.buffer.lock() {
+        // Handle rwlock poisoning by recovering the data
+        let buf = match self.buffer.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                warn!("Buffer mutex was poisoned, recovering...");
+                warn!("Buffer rwlock was poisoned, recovering...");
                 poisoned.into_inner()
             }
         };
