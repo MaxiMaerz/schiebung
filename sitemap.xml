@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/schiebung-comms/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/schiebung-core/python/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/schiebung-core/rust/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/schiebung-visualizer/python/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+    <url>
+         <loc>https://maximaerz.github.io/schiebung/schiebung-visualizer/rust/</loc>
+         <lastmod>2026-01-14</lastmod>
+    </url>
+</urlset>
