@@ -1,0 +1,25 @@
+[package]
+name = "schiebung-server-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for schiebung-server (transform server with Rerun)"
+license = "MIT"
+repository = "https://github.com/MaxiMaerz/schiebung"
+documentation = "https://maximaerz.github.io/schiebung/"
+homepage = "https://github.com/MaxiMaerz/schiebung"
+keywords = ["transform", "tf", "visualization", "rerun", "zenoh", "python"]
+categories = ["science::robotics"]
+
+[dependencies]
+schiebung-server = { path = "../schiebung-server-rs" }
+schiebung = { path = "../../core/schiebung-core-rs" }
+schiebung-py = { path = "../../core/schiebung-core-py" }
+pyo3 = { version = ">=0.26.0", features = ["abi3-py312"] }
+tokio = { version = "1.42", features = ["full"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]

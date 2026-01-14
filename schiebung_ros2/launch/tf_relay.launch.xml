@@ -1,3 +1,0 @@
-<launch>
-  <node pkg="schiebung_ros2" exec="schiebung_ros2" name="tf_to_schiebung" output="screen" />
-</launch>

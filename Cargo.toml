@@ -2,8 +2,11 @@
 resolver = "2"
 
 members = [
-    "schiebung-core-rs",
-    "schiebung-core-py",
+    "core/schiebung-core-rs",
+    "core/schiebung-core-py",
     "comms",
-    "schiebung-rerun",
+    "visualizer/schiebung-rerun-rs",
+    "visualizer/schiebung-rerun-py",
+    "server/schiebung-server-rs",
+    "server/schiebung-server-py",
 ]

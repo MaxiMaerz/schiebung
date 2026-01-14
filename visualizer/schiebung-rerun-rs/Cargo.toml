@@ -1,0 +1,15 @@
+[package]
+name = "schiebung-rerun"
+version = "0.1.0"
+edition = "2021"
+description = "Rerun visualization for schiebung transforms"
+license = "MIT"
+repository = "https://github.com/MaxiMaerz/schiebung"
+documentation = "https://maximaerz.github.io/schiebung/"
+homepage = "https://github.com/MaxiMaerz/schiebung"
+
+[dependencies]
+schiebung = { path = "../../core/schiebung-core-rs" }
+rerun = "0.28.1"
+nalgebra = "0.33.2"
+log = "0.4"

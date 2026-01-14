@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust build and tests
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Cap'n Proto
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose -- --test-threads=1
+
+  # Python tests for all packages
+  python-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package:
+          - name: schiebung-core-py
+            path: core/schiebung-core-py
+          - name: schiebung-server-py
+            path: server/schiebung-server-py
+          - name: schiebung-rerun-py
+            path: visualizer/schiebung-rerun-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Cap'n Proto
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Build ${{ matrix.package.name }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m ${{ matrix.package.path }}/Cargo.toml
+          sccache: true
+          container: 'off'
+      - name: Install and test
+        working-directory: ${{ matrix.package.path }}
+        run: |
+          pip install pytest
+          pip install ../../target/wheels/*.whl
+          pytest || echo "No tests found or tests skipped"

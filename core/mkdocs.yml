@@ -1,0 +1,7 @@
+site_name: Schiebung Core
+
+nav:
+  - Rust: rust.md
+  - Python: python.md
+
+docs_dir: docs

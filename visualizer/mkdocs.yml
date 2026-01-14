@@ -1,0 +1,7 @@
+site_name: Schiebung Visualizer
+
+nav:
+  - Rust: rust.md
+  - Python: python.md
+
+docs_dir: docs
