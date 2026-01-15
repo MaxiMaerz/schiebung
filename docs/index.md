@@ -1,5 +1,7 @@
 # Schiebung
 
+Full [Documenation](https://maximaerz.github.io/schiebung/)
+
 Schiebung is german for "shift" as in "shift the frame" or "shift the coordinate system".
 
 Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames.
@@ -13,11 +15,10 @@ It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](ht
 TF2 is available in ROS2, the implementation is super sturdy and battle tested.
 However some project might not want the huge ROS dependencies overhead. While it is possible to use TF2 without ROS, it lacks some features we need.
 
-It is most likely that our implementation:
+It is most likely that our implementation also:
 
 - is faster than TF2 (40-80ns per lookup)
 - is memory safe (typical RUST argument)
-- uses a cleaner API (in my opinion)
 
 However TF2 is a great tool and will most likely be the best choice for ROS 2 based projects. This project is very new and Bugs will most likely be found.
 
