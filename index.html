@@ -815,19 +815,32 @@
 
 
 <h1 id="schiebung">Schiebung</h1>
+<p>Full <a href="https://maximaerz.github.io/schiebung/">Documenation</a></p>
 <p>Schiebung is german for "shift" as in "shift the frame" or "shift the coordinate system".</p>
 <p>Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames.
 It is assumed that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated (lerp/slerp).</p>
 <p>The original concept and a far better explanation can be found here: <a href="http://wiki.ros.org/tf">ROS tf</a>
 It also draws inspiration from the rust implementation for ROS 1 <a href="https://github.com/arjo129/rustros_tf">rosrust_tf</a></p>
+<p>/<video controls autoplay loop muted>
+  <source src="demo.webm" type="video/webm">
+  Your browser does not support the video tag.
+</video></p>
+<p>In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
+We publish the bodies once (Sun, Earth and Moon) and just update the transforms in their respective frames:</p>
+<ul>
+<li>earth circles around the sun</li>
+<li>moon circles around the earth</li>
+<li>The distance between the moon and sun is calculated by a simple frame lookup (Moon -&gt; Sun)</li>
+</ul>
+<p>This allows the user to make a complexe (in this context) problem complelty trivial. As long as the TransformBuffer is updated all derived transformations
+can be calculated at all times (using lerp/slerp). It also makes it possible to calculate transformations without knowing anything of the actual transformation chain as long as the end and start of the chain are known.</p>
 <h2 id="motivation">Motivation</h2>
 <p>TF2 is available in ROS2, the implementation is super sturdy and battle tested.
 However some project might not want the huge ROS dependencies overhead. While it is possible to use TF2 without ROS, it lacks some features we need.</p>
-<p>It is most likely that our implementation:</p>
+<p>It is most likely that our implementation also:</p>
 <ul>
 <li>is faster than TF2 (40-80ns per lookup)</li>
 <li>is memory safe (typical RUST argument)</li>
-<li>uses a cleaner API (in my opinion)</li>
 </ul>
 <p>However TF2 is a great tool and will most likely be the best choice for ROS 2 based projects. This project is very new and Bugs will most likely be found.</p>
 <h2 id="design-goals">Design goals</h2>
