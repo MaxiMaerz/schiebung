@@ -10,9 +10,6 @@ services:
       - "9876:9876" # Rerun gRPC server
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    deploy:
-      restart_policy:
-        condition: on-failure
 
   client-earth:
     build:
@@ -21,9 +18,6 @@ services:
     command: python /app/client.py --parent Sun --child Earth --radius 2.0 --period 10.0
     depends_on:
       - server
-    deploy:
-      restart_policy:
-        condition: on-failure
 
   client-moon:
     build:
@@ -32,6 +26,3 @@ services:
     command: python /app/client.py --parent Earth --child Moon --radius 0.5 --period 2.0
     depends_on:
       - server
-    deploy:
-      restart_policy:
-        condition: on-failure
