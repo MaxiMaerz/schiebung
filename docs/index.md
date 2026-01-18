@@ -14,6 +14,13 @@ It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](ht
   <source src="demo.mp4" type="video/mp4">
 </video>
 
+<!-- GIF fallback for GitHub README (hidden on Pages via CSS) -->
+<div style="display:none">
+
+![Demo showing Sun-Earth-Moon transform visualization](demo.gif)
+
+</div>
+
 In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
 We publish the bodies once (Sun, Earth and Moon) and just update the transforms in their respective frames:
 
