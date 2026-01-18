@@ -10,6 +10,21 @@ It is assumed that all frames are either connected or root/leaf nodes. The resul
 The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
 It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
+/<video controls autoplay loop muted>
+  <source src="demo.webm" type="video/webm">
+  Your browser does not support the video tag.
+</video>
+
+In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
+We publish the bodies once (Sun, Earth and Moon) and just update the transforms in their respective frames:
+
+- earth circles around the sun
+- moon circles around the earth
+- The distance between the moon and sun is calculated by a simple frame lookup (Moon -> Sun)
+
+This allows the user to make a complexe (in this context) problem complelty trivial. As long as the TransformBuffer is updated all derived transformations
+can be calculated at all times (using lerp/slerp). It also makes it possible to calculate transformations without knowing anything of the actual transformation chain as long as the end and start of the chain are known.
+
 ## Motivation
 
 TF2 is available in ROS2, the implementation is super sturdy and battle tested.
