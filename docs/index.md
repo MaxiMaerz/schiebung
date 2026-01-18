@@ -11,8 +11,7 @@ The original concept and a far better explanation can be found here: [ROS tf](ht
 It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
 <video controls autoplay loop muted>
-  <source src="demo.webm" type="video/webm">
-  ![demo](demo.gif)
+  <source src="demo.mp4" type="video/mp4">
 </video>
 
 In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
