@@ -10,16 +10,7 @@ It is assumed that all frames are either connected or root/leaf nodes. The resul
 The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
 It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
-<video controls autoplay loop muted>
-  <source src="demo.mp4" type="video/mp4">
-</video>
-
-<!-- GIF fallback for GitHub README (hidden on Pages via CSS) -->
-<div style="display:none">
-
 ![Demo showing Sun-Earth-Moon transform visualization](demo.gif)
-
-</div>
 
 In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
 We publish the bodies once (Sun, Earth and Moon) and just update the transforms in their respective frames:
