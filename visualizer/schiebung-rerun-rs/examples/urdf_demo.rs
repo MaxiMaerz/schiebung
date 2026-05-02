@@ -85,35 +85,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let time = step as f64 * (duration / num_steps as f64);
         let angle = (time / duration) * 2.0 * std::f64::consts::PI;
 
-        for (joint_idx, (parent, child, xyz, rpy)) in dynamic_joints.iter().enumerate() {
-            // Apply a phase-shifted sinusoidal rotation to each joint
-            let joint_angle = (angle + joint_idx as f64 * 0.5).sin() * 0.5;
+        // Build all joint updates for this step into one batch — observer
+        // fires once and rerun receives one columnar send per entity path.
+        let updates: Vec<TransformUpdate> = dynamic_joints
+            .iter()
+            .enumerate()
+            .map(|(joint_idx, (parent, child, xyz, rpy))| {
+                let joint_angle = (angle + joint_idx as f64 * 0.5).sin() * 0.5;
 
-            // Determine rotation axis from URDF (simplified: use Z for pan joints, Y for lift/elbow)
-            let (axis_roll, axis_pitch, axis_yaw) = match joint_idx {
-                0 => (0.0, 0.0, joint_angle), // shoulder_pan: Z axis
-                1 => (0.0, joint_angle, 0.0), // shoulder_lift: Y axis
-                2 => (0.0, joint_angle, 0.0), // elbow: Y axis
-                3 => (0.0, joint_angle, 0.0), // wrist_1: Y axis
-                4 => (0.0, 0.0, joint_angle), // wrist_2: Z axis
-                5 => (0.0, joint_angle, 0.0), // wrist_3: Y axis
-                _ => (0.0, 0.0, 0.0),
-            };
+                let (axis_roll, axis_pitch, axis_yaw) = match joint_idx {
+                    0 => (0.0, 0.0, joint_angle), // shoulder_pan: Z axis
+                    1 => (0.0, joint_angle, 0.0), // shoulder_lift: Y axis
+                    2 => (0.0, joint_angle, 0.0), // elbow: Y axis
+                    3 => (0.0, joint_angle, 0.0), // wrist_1: Y axis
+                    4 => (0.0, 0.0, joint_angle), // wrist_2: Z axis
+                    5 => (0.0, joint_angle, 0.0), // wrist_3: Y axis
+                    _ => (0.0, 0.0, 0.0),
+                };
 
-            // Combine base rotation from URDF with joint rotation
-            let base_rotation = UnitQuaternion::from_euler_angles(rpy[0], rpy[1], rpy[2]);
-            let joint_rotation = UnitQuaternion::from_euler_angles(axis_roll, axis_pitch, axis_yaw);
-            let combined = base_rotation * joint_rotation;
+                let base_rotation = UnitQuaternion::from_euler_angles(rpy[0], rpy[1], rpy[2]);
+                let joint_rotation =
+                    UnitQuaternion::from_euler_angles(axis_roll, axis_pitch, axis_yaw);
+                let combined = base_rotation * joint_rotation;
 
-            let quat = [combined.i, combined.j, combined.k, combined.w];
-            let transform = StampedIsometry::from_secs(*xyz, quat, time);
-            buffer.update(&[TransformUpdate::new(
-                *parent,
-                *child,
-                transform,
-                TransformType::Dynamic,
-            )])?;
-        }
+                let quat = [combined.i, combined.j, combined.k, combined.w];
+                let transform = StampedIsometry::from_secs(*xyz, quat, time);
+                TransformUpdate::new(*parent, *child, transform, TransformType::Dynamic)
+            })
+            .collect();
+
+        buffer.update(&updates)?;
     }
 
     Ok(())
