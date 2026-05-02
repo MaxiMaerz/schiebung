@@ -1,5 +1,5 @@
 use rerun::RecordingStreamBuilder;
-use schiebung::{BufferTree, StampedIsometry, TransformType};
+use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
 use schiebung_rerun::RerunObserver;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -55,7 +55,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let earth_transform =
             StampedIsometry::from_secs([earth_x, earth_y, 0.0], [0.0, 0.0, 0.0, 1.0], time);
-        buffer.update("Sun", "Earth", earth_transform, TransformType::Dynamic)?;
+        buffer.update(&[TransformUpdate::new(
+            "Sun",
+            "Earth",
+            earth_transform,
+            TransformType::Dynamic,
+        )])?;
 
         let moon_angle = (time / moon_period) * 2.0 * std::f64::consts::PI;
         let moon_x = moon_orbit_radius * moon_angle.cos();
@@ -63,7 +68,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let moon_transform =
             StampedIsometry::from_secs([moon_x, moon_y, 0.0], [0.0, 0.0, 0.0, 1.0], time);
-        buffer.update("Earth", "Moon", moon_transform, TransformType::Dynamic)?;
+        buffer.update(&[TransformUpdate::new(
+            "Earth",
+            "Moon",
+            moon_transform,
+            TransformType::Dynamic,
+        )])?;
 
         let transform = buffer.lookup_latest_transform("Moon", "Sun")?;
         let distance = transform.norm();

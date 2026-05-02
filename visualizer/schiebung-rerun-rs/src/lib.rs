@@ -1,9 +1,16 @@
 use rerun::RecordingStream;
-use schiebung::{BufferObserver, StampedIsometry};
+use schiebung::{BufferObserver, StampedIsometry, TransformUpdate};
 
-/// Observer that logs transforms to a Rerun recording stream
-/// If the model (e.g. a URDF) is laoded via rerun the publish_static_transforms flag should be set to false
-/// Otherwise the static transforms will be logged twice.
+/// Observer that logs transforms to a Rerun recording stream.
+///
+/// `BufferObserver::on_update` is invoked once per buffer update with the
+/// full batch; this implementation iterates and logs each transform
+/// individually. A follow-up change replaces the loop with rerun's columnar
+/// `send_columns` bulk-write API.
+///
+/// If the model (e.g. a URDF) is loaded via rerun the
+/// `publish_static_transforms` flag should be set to false; otherwise the
+/// static transforms will be logged twice.
 pub struct RerunObserver {
     rec: RecordingStream,
     publish_static_transforms: bool,
@@ -18,10 +25,8 @@ impl RerunObserver {
             timeline,
         }
     }
-}
 
-impl BufferObserver for RerunObserver {
-    fn on_update(
+    fn log_one(
         &self,
         from: &str,
         to: &str,
@@ -70,6 +75,19 @@ impl BufferObserver for RerunObserver {
                     )
                     .ok();
             }
+        }
+    }
+}
+
+impl BufferObserver for RerunObserver {
+    fn on_update(&self, updates: &[TransformUpdate]) {
+        for update in updates {
+            self.log_one(
+                &update.from,
+                &update.to,
+                &update.stamped_isometry,
+                update.kind,
+            );
         }
     }
 }

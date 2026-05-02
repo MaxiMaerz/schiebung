@@ -1,6 +1,8 @@
 use nalgebra::UnitQuaternion;
 use rerun::RecordingStreamBuilder;
-use schiebung::{BufferTree, FormatLoader, StampedIsometry, TransformType, UrdfLoader};
+use schiebung::{
+    BufferTree, FormatLoader, StampedIsometry, TransformType, TransformUpdate, UrdfLoader,
+};
 use schiebung_rerun::RerunObserver;
 use std::env;
 use std::path::PathBuf;
@@ -105,7 +107,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let quat = [combined.i, combined.j, combined.k, combined.w];
             let transform = StampedIsometry::from_secs(*xyz, quat, time);
-            buffer.update(parent, child, transform, TransformType::Dynamic)?;
+            buffer.update(&[TransformUpdate::new(
+                *parent,
+                *child,
+                transform,
+                TransformType::Dynamic,
+            )])?;
         }
     }
 

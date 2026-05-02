@@ -143,3 +143,31 @@ impl fmt::Display for StampedIsometry {
         )
     }
 }
+
+/// One transform to insert into a `BufferTree` via `update`.
+///
+/// `BufferTree::update` and `BufferObserver::on_update` operate on slices of these
+/// so callers can push many transforms in a single call.
+#[derive(Clone, Debug)]
+pub struct TransformUpdate {
+    pub from: String,
+    pub to: String,
+    pub stamped_isometry: StampedIsometry,
+    pub kind: TransformType,
+}
+
+impl TransformUpdate {
+    pub fn new(
+        from: impl Into<String>,
+        to: impl Into<String>,
+        stamped_isometry: StampedIsometry,
+        kind: TransformType,
+    ) -> Self {
+        TransformUpdate {
+            from: from.into(),
+            to: to.into(),
+            stamped_isometry,
+            kind,
+        }
+    }
+}

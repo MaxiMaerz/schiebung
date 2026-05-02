@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nalgebra::Isometry3;
-use schiebung::{BufferTree, StampedIsometry, TransformType};
+use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
 use std::hint::black_box;
 
 // ============================================================================
@@ -19,7 +19,12 @@ fn setup_simple_dynamic_buffer() -> BufferTree {
             (i as i64) * 100_000_000,
         );
         buffer
-            .update("frame_a", "frame_b", isometry, TransformType::Dynamic)
+            .update(&[TransformUpdate::new(
+                "frame_a",
+                "frame_b",
+                isometry,
+                TransformType::Dynamic,
+            )])
             .unwrap();
     }
 
@@ -32,7 +37,12 @@ fn setup_simple_static_buffer() -> BufferTree {
 
     let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
     buffer
-        .update("frame_a", "frame_b", isometry, TransformType::Static)
+        .update(&[TransformUpdate::new(
+            "frame_a",
+            "frame_b",
+            isometry,
+            TransformType::Static,
+        )])
         .unwrap();
 
     buffer
@@ -56,7 +66,12 @@ fn setup_deep_tree() -> BufferTree {
         };
 
         buffer
-            .update(&source_name, &target_name, isometry, TransformType::Static)
+            .update(&[TransformUpdate::new(
+                source_name,
+                target_name,
+                isometry,
+                TransformType::Static,
+            )])
             .unwrap();
     }
 
@@ -70,12 +85,12 @@ fn setup_wide_tree(num_children: usize) -> BufferTree {
     for i in 0..num_children {
         let isometry = StampedIsometry::new([i as f64, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
         buffer
-            .update(
+            .update(&[TransformUpdate::new(
                 "root",
-                &format!("child_{}", i),
+                format!("child_{}", i),
                 isometry,
                 TransformType::Static,
-            )
+            )])
             .unwrap();
     }
 
@@ -93,12 +108,12 @@ fn bench_update_new_edge(c: &mut Criterion) {
             |mut buffer| {
                 let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
                 buffer
-                    .update(
-                        black_box("frame_a"),
-                        black_box("frame_b"),
-                        black_box(isometry),
+                    .update(black_box(&[TransformUpdate::new(
+                        "frame_a",
+                        "frame_b",
+                        isometry,
                         TransformType::Static,
-                    )
+                    )]))
                     .unwrap();
             },
             criterion::BatchSize::SmallInput,
@@ -109,7 +124,12 @@ fn bench_update_new_edge(c: &mut Criterion) {
         let mut buffer = BufferTree::new();
         let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0);
         buffer
-            .update("frame_a", "frame_b", isometry, TransformType::Dynamic)
+            .update(&[TransformUpdate::new(
+                "frame_a",
+                "frame_b",
+                isometry,
+                TransformType::Dynamic,
+            )])
             .unwrap();
 
         let mut t = 1_000_000_000i64;
@@ -117,15 +137,83 @@ fn bench_update_new_edge(c: &mut Criterion) {
             t += 100_000_000;
             let isometry = StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], t);
             buffer
-                .update(
-                    black_box("frame_a"),
-                    black_box("frame_b"),
-                    black_box(isometry),
+                .update(black_box(&[TransformUpdate::new(
+                    "frame_a",
+                    "frame_b",
+                    isometry,
                     TransformType::Dynamic,
-                )
+                )]))
                 .unwrap();
         })
     });
+}
+
+/// Benchmark: insert N edges in a single batch vs N single-element calls.
+/// Mirrors the "many edges, one stamp" workload that motivated the batch API.
+fn bench_update_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("update_batch");
+
+    for batch_size in [1usize, 10, 100, 1000].iter() {
+        // Single batched call
+        group.bench_with_input(
+            BenchmarkId::new("one_call", batch_size),
+            batch_size,
+            |b, &batch_size| {
+                let updates: Vec<TransformUpdate> = (0..batch_size)
+                    .map(|i| {
+                        TransformUpdate::new(
+                            "root",
+                            format!("child_{}", i),
+                            StampedIsometry::new(
+                                [i as f64, 0.0, 0.0],
+                                [0.0, 0.0, 0.0, 1.0],
+                                1_000_000_000,
+                            ),
+                            TransformType::Static,
+                        )
+                    })
+                    .collect();
+
+                b.iter_batched(
+                    || (BufferTree::new(), updates.clone()),
+                    |(mut buffer, updates)| {
+                        buffer.update(black_box(&updates)).unwrap();
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+
+        // N separate single-element calls (for comparison)
+        group.bench_with_input(
+            BenchmarkId::new("n_calls", batch_size),
+            batch_size,
+            |b, &batch_size| {
+                b.iter_batched(
+                    || BufferTree::new(),
+                    |mut buffer| {
+                        for i in 0..batch_size {
+                            buffer
+                                .update(&[TransformUpdate::new(
+                                    "root",
+                                    format!("child_{}", i),
+                                    StampedIsometry::new(
+                                        [i as f64, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 1.0],
+                                        1_000_000_000,
+                                    ),
+                                    TransformType::Static,
+                                )])
+                                .unwrap();
+                        }
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
 }
 
 // ============================================================================
@@ -207,7 +295,12 @@ fn bench_lookup_scaling(c: &mut Criterion) {
                 format!("n{}", i)
             };
             buffer
-                .update(&source, &target, isometry, TransformType::Static)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    isometry,
+                    TransformType::Static,
+                )])
                 .unwrap();
         }
 
@@ -307,7 +400,12 @@ fn setup_buffer_with_history(num_entries: usize) -> BufferTree {
             timestamp,
         );
         buffer
-            .update("frame_a", "frame_b", isometry, TransformType::Dynamic)
+            .update(&[TransformUpdate::new(
+                "frame_a",
+                "frame_b",
+                isometry,
+                TransformType::Dynamic,
+            )])
             .unwrap();
     }
 
@@ -329,12 +427,12 @@ fn bench_history_update_scaling(c: &mut Criterion) {
                 let isometry =
                     StampedIsometry::new([t as f64 * 0.000001, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], t);
                 buffer
-                    .update(
-                        black_box("frame_a"),
-                        black_box("frame_b"),
-                        black_box(isometry),
+                    .update(black_box(&[TransformUpdate::new(
+                        "frame_a",
+                        "frame_b",
+                        isometry,
                         TransformType::Dynamic,
-                    )
+                    )]))
                     .unwrap();
             })
         });
@@ -431,7 +529,7 @@ fn bench_history_interpolation_positions(c: &mut Criterion) {
 // Criterion Groups
 // ============================================================================
 
-criterion_group!(update_benches, bench_update_new_edge,);
+criterion_group!(update_benches, bench_update_new_edge, bench_update_batch,);
 
 criterion_group!(
     lookup_benches,

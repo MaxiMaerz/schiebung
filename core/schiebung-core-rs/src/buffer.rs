@@ -10,7 +10,7 @@ use petgraph::graphmap::DiGraphMap;
 
 use crate::config::{get_config, BufferConfig};
 use crate::error::TfError;
-use crate::types::{StampedIsometry, TransformType};
+use crate::types::{StampedIsometry, TransformType, TransformUpdate};
 
 /// The TransformHistory keeps track of a single transform between two frames
 /// Update pushes a new StampedTransform to the end, if the history reaches it's max length
@@ -149,9 +149,14 @@ impl NodeIndex {
     }
 }
 
-/// Trait to observe changes in the buffer
+/// Trait to observe changes in the buffer.
+///
+/// `on_update` is called once per `BufferTree::update` call with the full
+/// batch of transforms inserted in that call. Implementations that only care
+/// about individual transforms can iterate the slice; implementations that can
+/// exploit batching (e.g. columnar logging) should consume the slice directly.
 pub trait BufferObserver: Send + Sync {
-    fn on_update(&self, from: &str, to: &str, transform: &StampedIsometry, kind: TransformType);
+    fn on_update(&self, updates: &[TransformUpdate]);
 }
 
 /// The core BufferImplementation
@@ -179,17 +184,27 @@ impl BufferTree {
 
     /// Register a new observer
     /// The observer will be notified about all current transforms in the buffer
+    /// in a single `on_update` call containing the full replay of the buffer
+    /// state at registration time.
     pub fn register_observer(&mut self, observer: Box<dyn BufferObserver>) {
-        // Notify the new observer about all existing transforms
+        let mut replay: Vec<TransformUpdate> = Vec::new();
         for (from_idx, to_idx, history) in self.graph.all_edges() {
             let from_node = self.index.get_node(from_idx);
             let to_node = self.index.get_node(to_idx);
 
             if let (Some(from_node), Some(to_node)) = (from_node, to_node) {
                 for item in &history.history {
-                    observer.on_update(&from_node.name, &to_node.name, item, history.kind);
+                    replay.push(TransformUpdate {
+                        from: from_node.name.clone(),
+                        to: to_node.name.clone(),
+                        stamped_isometry: item.clone(),
+                        kind: history.kind,
+                    });
                 }
             }
+        }
+        if !replay.is_empty() {
+            observer.on_update(&replay);
         }
         self.observers.push(observer);
     }
@@ -228,7 +243,36 @@ impl BufferTree {
         }
     }
 
-    pub fn update(
+    /// Insert a batch of transforms into the buffer.
+    ///
+    /// All updates in the slice are applied in order. The same per-edge
+    /// validation as before is performed for every update (cycle / multiple
+    /// parents check). The call is **fail-fast**: if any update is rejected,
+    /// the function returns the error immediately and earlier updates in the
+    /// batch remain applied. Observers are only notified if the entire batch
+    /// succeeds, in a single `on_update` call.
+    ///
+    /// To insert a single transform, pass a 1-element slice.
+    pub fn update(&mut self, updates: &[TransformUpdate]) -> Result<(), TfError> {
+        for update in updates {
+            self.insert_one(
+                &update.from,
+                &update.to,
+                update.stamped_isometry.clone(),
+                update.kind,
+            )?;
+        }
+
+        if !updates.is_empty() {
+            for observer in &self.observers {
+                observer.on_update(updates);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn insert_one(
         &mut self,
         from: &str,
         to: &str,
@@ -303,10 +347,6 @@ impl BufferTree {
                 new_ancestor_ids.push(from_idx);
             }
             self.update_subtree_ancestors(to_idx, new_ancestors, new_ancestor_ids);
-        }
-        // Notify observers
-        for observer in &self.observers {
-            observer.on_update(from, to, &stamped_isometry, kind);
         }
 
         self.graph
@@ -565,9 +605,10 @@ impl BufferTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BufferTree, StampedIsometry, TransformType};
+    use crate::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
     use approx::assert_relative_eq;
     use nalgebra::geometry::Isometry3;
+    use std::sync::Mutex;
 
     #[test]
     fn test_buffer_tree_update() {
@@ -581,7 +622,12 @@ mod tests {
 
         // Add first transformation
         buffer_tree
-            .update(source, target, stamped_isometry, TransformType::Static)
+            .update(&[TransformUpdate::new(
+                source,
+                target,
+                stamped_isometry,
+                TransformType::Static,
+            )])
             .unwrap();
 
         // Test lookup
@@ -596,8 +642,12 @@ mod tests {
 
         let transform = StampedIsometry::from_secs([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 1.0);
 
-        let result =
-            buffer_tree.update("base_link", "target_link", transform, TransformType::Static);
+        let result = buffer_tree.update(&[TransformUpdate::new(
+            "base_link",
+            "target_link",
+            transform,
+            TransformType::Static,
+        )]);
 
         assert!(result.is_ok());
 
@@ -621,14 +671,29 @@ mod tests {
 
         // Add edges A → B and B → C
         buffer_tree
-            .update(a, b, stamped_isometry.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                a,
+                b,
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
         buffer_tree
-            .update(b, c, stamped_isometry.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                b,
+                c,
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
 
         // Creating a cycle C → A should fail
-        let result = buffer_tree.update(c, a, stamped_isometry.clone(), TransformType::Static);
+        let result = buffer_tree.update(&[TransformUpdate::new(
+            c,
+            a,
+            stamped_isometry.clone(),
+            TransformType::Static,
+        )]);
         assert!(result.is_err());
         assert!(matches!(result, Err(TfError::InvalidGraph(_))));
     }
@@ -645,9 +710,19 @@ mod tests {
             StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
 
         buffer_tree
-            .update(a, b, stamped_isometry.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                a,
+                b,
+                stamped_isometry.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
-        let result = buffer_tree.update(c, b, stamped_isometry.clone(), TransformType::Static);
+        let result = buffer_tree.update(&[TransformUpdate::new(
+            c,
+            b,
+            stamped_isometry.clone(),
+            TransformType::Static,
+        )]);
         assert!(result.is_err());
         assert!(matches!(result, Err(TfError::InvalidGraph(_))));
     }
@@ -657,39 +732,39 @@ mod tests {
         let mut buffer_tree = BufferTree::new();
 
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "A",
                 "B",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Dynamic,
-            )
+            )])
             .unwrap();
 
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "A",
                 "C",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 2.0),
                 TransformType::Dynamic,
-            )
+            )])
             .unwrap();
 
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "B",
                 "D",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 3.0),
                 TransformType::Dynamic,
-            )
+            )])
             .unwrap();
 
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "B",
                 "E",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 3.0),
                 TransformType::Dynamic,
-            )
+            )])
             .unwrap();
 
         println!("{:?}", buffer_tree.visualize());
@@ -771,7 +846,12 @@ mod tests {
             let stamped_isometry = StampedIsometry::new(translation, rotation, timestamp_ns);
 
             buffer_tree
-                .update(source, target, stamped_isometry, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
         }
 
@@ -874,7 +954,12 @@ mod tests {
             let stamped_isometry = StampedIsometry::new(translation, rotation, timestamp_ns);
 
             buffer_tree
-                .update(source, target, stamped_isometry, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
         }
 
@@ -960,10 +1045,20 @@ mod tests {
             let stamped_isometry_2 = StampedIsometry::new(translation, rotation, timestamp_2);
 
             buffer_tree
-                .update(source, target, stamped_isometry_1, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry_1,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
             buffer_tree
-                .update(source, target, stamped_isometry_2, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry_2,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
         }
 
@@ -1337,7 +1432,12 @@ mod tests {
                 stamp: 0,
             };
             buffer_tree
-                .update(source, target, stamped_isometry, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
         }
 
@@ -1356,7 +1456,12 @@ mod tests {
                 stamp: 1_000_000_000, // 1 second in nanoseconds
             };
             buffer_tree
-                .update(source, target, stamped_isometry, TransformType::Dynamic)
+                .update(&[TransformUpdate::new(
+                    source,
+                    target,
+                    stamped_isometry,
+                    TransformType::Dynamic,
+                )])
                 .unwrap();
         }
 
@@ -1527,21 +1632,21 @@ mod tests {
 
         // Add some transforms but leave frames disconnected
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "A",
                 "B",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Static,
-            )
+            )])
             .unwrap();
 
         buffer_tree
-            .update(
+            .update(&[TransformUpdate::new(
                 "C",
                 "D",
                 StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
                 TransformType::Static,
-            )
+            )])
             .unwrap();
 
         // Try to lookup transform between disconnected frames
@@ -1607,10 +1712,20 @@ mod tests {
 
         // A -> B -> C
         buffer_tree
-            .update(a, b, tf.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                a,
+                b,
+                tf.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
         buffer_tree
-            .update(b, c, tf.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                b,
+                c,
+                tf.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
 
         // Check ancestors
@@ -1628,7 +1743,12 @@ mod tests {
 
         // Add R -> A
         buffer_tree
-            .update(r, a, tf.clone(), TransformType::Static)
+            .update(&[TransformUpdate::new(
+                r,
+                a,
+                tf.clone(),
+                TransformType::Static,
+            )])
             .unwrap();
 
         // Check updates
@@ -1641,5 +1761,85 @@ mod tests {
             get_ancestors(&buffer_tree, c),
             vec![r.to_string(), a.to_string(), b.to_string()]
         );
+    }
+
+    /// Counts each `on_update` call and the size of every batch it sees.
+    #[derive(Default)]
+    struct CountingObserver {
+        calls: Mutex<Vec<usize>>,
+    }
+
+    impl BufferObserver for std::sync::Arc<CountingObserver> {
+        fn on_update(&self, updates: &[TransformUpdate]) {
+            self.calls.lock().unwrap().push(updates.len());
+        }
+    }
+
+    #[test]
+    fn test_update_batch_many_edges_one_stamp() {
+        // A star graph: root -> N children, all at the same stamp, in one update call.
+        let mut buffer_tree = BufferTree::new();
+        let stamp_ns = 1_000_000_000_i64;
+
+        let updates: Vec<TransformUpdate> = (0..5)
+            .map(|i| {
+                TransformUpdate::new(
+                    "root",
+                    format!("child_{}", i),
+                    StampedIsometry::new([i as f64, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], stamp_ns),
+                    TransformType::Static,
+                )
+            })
+            .collect();
+
+        buffer_tree.update(&updates).unwrap();
+
+        for i in 0..5 {
+            let r = buffer_tree
+                .lookup_latest_transform("root", &format!("child_{}", i))
+                .unwrap();
+            assert_eq!(r.translation()[0], i as f64);
+        }
+    }
+
+    #[test]
+    fn test_update_batch_fail_fast_on_cycle() {
+        // A->B succeeds, then B->A in the same batch creates a cycle and the
+        // call returns Err. A->B remains applied (fail-fast, not transactional).
+        let mut buffer_tree = BufferTree::new();
+        let iso = StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0);
+
+        let result = buffer_tree.update(&[
+            TransformUpdate::new("A", "B", iso.clone(), TransformType::Static),
+            TransformUpdate::new("B", "A", iso.clone(), TransformType::Static),
+        ]);
+
+        assert!(matches!(result, Err(TfError::InvalidGraph(_))));
+        // First edge stuck around.
+        assert!(buffer_tree.lookup_latest_transform("A", "B").is_ok());
+    }
+
+    #[test]
+    fn test_update_batch_observer_called_once() {
+        let mut buffer_tree = BufferTree::new();
+        let observer = std::sync::Arc::new(CountingObserver::default());
+        buffer_tree.register_observer(Box::new(observer.clone()));
+
+        let updates: Vec<TransformUpdate> = (0..5)
+            .map(|i| {
+                TransformUpdate::new(
+                    "root",
+                    format!("child_{}", i),
+                    StampedIsometry::from_secs([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0),
+                    TransformType::Static,
+                )
+            })
+            .collect();
+
+        buffer_tree.update(&updates).unwrap();
+
+        let calls = observer.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "observer should be invoked exactly once");
+        assert_eq!(calls[0], 5, "observer should see the full 5-element batch");
     }
 }

@@ -1,7 +1,7 @@
 use crate::config::{ZenohConfig, TRANSFORM_PUB_TOPIC};
 use crate::error::CommsError;
 use log::{debug, error, info, warn};
-use schiebung::{types::StampedIsometry, BufferTree};
+use schiebung::{types::StampedIsometry, BufferTree, TransformUpdate};
 use std::sync::{Arc, RwLock};
 
 /// Server regarding Schiebung transforms
@@ -176,7 +176,12 @@ impl TransformServer {
             }
         };
 
-        buf.update(&from, &to, stamped_isometry, transform_type)?;
+        buf.update(&[TransformUpdate::new(
+            from.clone(),
+            to.clone(),
+            stamped_isometry,
+            transform_type,
+        )])?;
         info!(
             "Stored transform: {} -> {} ({:?})",
             from, to, transform_type
