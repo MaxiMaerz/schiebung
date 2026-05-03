@@ -10,9 +10,7 @@ It is assumed that all frames are either connected or root/leaf nodes. The resul
 The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
 It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
 
-<video controls autoplay loop muted>
-  <source src="demo.mp4" type="video/mp4">
-</video>
+[demo.webm](https://github.com/user-attachments/assets/5c167e6c-ca6a-4a40-af11-8d94ad14fd95)
 
 In the video you can see a very basic example utilizing the TransformBuffer in combination with the rerun visualizer:
 We publish the bodies once (Sun, Earth and Moon) and just update the transforms in their respective frames:
@@ -23,6 +21,10 @@ We publish the bodies once (Sun, Earth and Moon) and just update the transforms 
 
 This allows the user to make a complexe (in this context) problem complelty trivial. As long as the TransformBuffer is updated all derived transformations
 can be calculated at all times (using lerp/slerp). It also makes it possible to calculate transformations without knowing anything of the actual transformation chain as long as the end and start of the chain are known.
+
+[demo_urdf.webm](https://github.com/user-attachments/assets/6f412500-7a5e-43f2-892f-d194e0504573)
+
+The URDF demo loads a 6-DOF arm via the URDF loader, animates each joint, and places a small static cube in the workspace. After every batch joint update we look up `wrist_3_link → target_cube` and log the resulting vector as an arrow with the distance as a label — showing how arbitrary frame-to-frame queries fall out of the buffer for free once the transforms are populated.
 
 ## Motivation
 

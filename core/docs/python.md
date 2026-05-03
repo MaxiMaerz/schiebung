@@ -22,12 +22,17 @@ uv run --with schiebung,ipython ipython
 
 ## Usage
 
+`BufferTree.update` takes a list of `(from, to, stamped_isometry, kind)`
+tuples. Pass a one-element list for a single transform, or many to insert them
+in one bulk call — observers are notified once per call with the full batch.
+
 ```python
 from schiebung import BufferTree, StampedIsometry, TransformType
 
 buffer = BufferTree()
 # Timestamps are in nanoseconds (1_000_000_000 = 1 second)
-buffer.update("base_link", "target_link", StampedIsometry(translation=(1, 0, 0), rotation=(0, 0, 0, 1), stamp=1_000_000_000), TransformType.Static)
+iso = StampedIsometry(translation=(1, 0, 0), rotation=(0, 0, 0, 1), stamp=1_000_000_000)
+buffer.update([("base_link", "target_link", iso, TransformType.Static)])
 result = buffer.lookup_transform("base_link", "target_link", 1_000_000_000)
 
 print(f"Translation: {result.translation()}")
@@ -35,11 +40,35 @@ print(f"Rotation: {result.rotation()}")
 print(f"Euler angles: {result.euler_angles()}")
 ```
 
+### Bulk Updates (Many Transforms in One Call)
+
+```python
+from schiebung import BufferTree, StampedIsometry, TransformType
+
+buffer = BufferTree()
+stamp_ns = 1_000_000_000
+
+# Push all six joint transforms of a robot at one timestamp in a single call.
+# An observer (e.g. the rerun visualizer) will be invoked once with the full
+# batch and can bulk-send the data downstream.
+buffer.update([
+    ("base", "shoulder",   StampedIsometry((0, 0, 0.13), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+    ("shoulder", "upper",  StampedIsometry((0, 0.22, 0), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+    ("upper", "forearm",   StampedIsometry((0, -0.17, 0.6), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+    ("forearm", "wrist1",  StampedIsometry((0, 0, 0.57), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+    ("wrist1", "wrist2",   StampedIsometry((0, 0.11, 0), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+    ("wrist2", "wrist3",   StampedIsometry((0, 0, 0.12), (0, 0, 0, 1), stamp_ns), TransformType.Dynamic),
+])
+```
+
+The call is **fail-fast**: if any tuple is rejected (graph cycle or multiple
+parents), `update` raises immediately and earlier tuples in the list remain
+applied.
+
 ### Dynamic Transforms with Interpolation
 
 ```python
 from schiebung import BufferTree, StampedIsometry, TransformType
-import time
 
 buffer = BufferTree()
 
@@ -51,7 +80,7 @@ for i in range(5):
         rotation=[0.0, 0.0, 0.0, 1.0],
         stamp=t_ns
     )
-    buffer.update("base", "end", transform, TransformType.Dynamic)
+    buffer.update([("base", "end", transform, TransformType.Dynamic)])
 
 # Interpolate at intermediate time (250ms in nanoseconds)
 result = buffer.lookup_transform("base", "end", 250_000_000)
@@ -68,9 +97,11 @@ from schiebung import BufferTree, StampedIsometry, TransformType
 buffer = BufferTree()
 # Timestamp in nanoseconds (1_000_000_000 = 1 second)
 iso = StampedIsometry([0,0,1], [0,0,0,1], 1_000_000_000)
-buffer.update("a", "b", iso, TransformType.Dynamic)
-buffer.update("a", "c", iso, TransformType.Dynamic)
-buffer.update("b", "b_1", iso, TransformType.Dynamic)
-buffer.update("c", "c_1", iso, TransformType.Dynamic)
+buffer.update([
+    ("a", "b", iso, TransformType.Dynamic),
+    ("a", "c", iso, TransformType.Dynamic),
+    ("b", "b_1", iso, TransformType.Dynamic),
+    ("c", "c_1", iso, TransformType.Dynamic),
+])
 print(buffer.visualize())
 ```

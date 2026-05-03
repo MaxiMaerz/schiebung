@@ -23,8 +23,6 @@ jobs:
         package:
           - name: schiebung-core-py
             path: core/schiebung-core-py
-          - name: schiebung-server-py
-            path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
     steps:
@@ -65,8 +63,6 @@ jobs:
         package:
           - name: schiebung-core-py
             path: core/schiebung-core-py
-          - name: schiebung-server-py
-            path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
     steps:
@@ -105,8 +101,6 @@ jobs:
         package:
           - name: schiebung-core-py
             path: core/schiebung-core-py
-          - name: schiebung-server-py
-            path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
     steps:
@@ -147,8 +141,6 @@ jobs:
         package:
           - name: schiebung-core-py
             path: core/schiebung-core-py
-          - name: schiebung-server-py
-            path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
     steps:
@@ -182,8 +174,6 @@ jobs:
         package:
           - name: schiebung-core-py
             path: core/schiebung-core-py
-          - name: schiebung-server-py
-            path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
     steps:

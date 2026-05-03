@@ -4,7 +4,8 @@ use pyo3::prelude::*;
 use ::schiebung::{
     BufferObserver as CoreBufferObserver, BufferTree as CoreBufferTree,
     FormatLoader as CoreFormatLoader, StampedIsometry as CoreStampedIsometry,
-    TfError as CoreTfError, TransformType as CoreTransformType, UrdfLoader as CoreUrdfLoader,
+    TfError as CoreTfError, TransformType as CoreTransformType,
+    TransformUpdate as CoreTransformUpdate, UrdfLoader as CoreUrdfLoader,
 };
 
 /// Python wrapper for TfError
@@ -227,29 +228,26 @@ impl PyBufferObserver {
 }
 
 impl CoreBufferObserver for PyBufferObserver {
-    fn on_update(
-        &self,
-        from: &str,
-        to: &str,
-        transform: &CoreStampedIsometry,
-        kind: CoreTransformType,
-    ) {
-        // Acquire the GIL to call the Python function
+    fn on_update(&self, updates: &[CoreTransformUpdate]) {
+        // Acquire the GIL once for the whole batch and call the Python
+        // callback per item, preserving the per-transform user-facing API.
         Python::attach(|py| {
-            // Convert Rust types to Python types
-            let py_transform = StampedIsometry::from(transform.clone());
-            let py_kind = TransformType::from(kind);
+            for update in updates {
+                let py_transform = StampedIsometry::from(update.stamped_isometry.clone());
+                let py_kind = TransformType::from(update.kind);
 
-            // Call the Python callback
-            // We catch errors and log them rather than panicking
-            if let Err(e) = self.callback.call1(
-                py,
-                (from.to_string(), to.to_string(), py_transform, py_kind),
-            ) {
-                // Print the error to stderr
-                eprintln!("Error calling Python observer callback: {}", e);
-                // Print the Python traceback if available
-                e.print(py);
+                if let Err(e) = self.callback.call1(
+                    py,
+                    (
+                        update.from.clone(),
+                        update.to.clone(),
+                        py_transform,
+                        py_kind,
+                    ),
+                ) {
+                    eprintln!("Error calling Python observer callback: {}", e);
+                    e.print(py);
+                }
             }
         });
     }
@@ -271,23 +269,35 @@ impl BufferTree {
         }
     }
 
-    /// Either update or push a transform to the graph
-    /// Panics if the graph becomes cyclic
+    /// Insert one or more transforms into the buffer.
+    ///
+    /// `updates` is a list of `(from, to, stamped_isometry, kind)` tuples. Pass
+    /// a single-element list to insert one transform; pass many to insert them
+    /// in a single bulk call. Observers (e.g. the rerun visualizer) are
+    /// notified once per call with the full batch, which lets columnar
+    /// observers send their data in one shot.
+    ///
+    /// The call is fail-fast: if any tuple is rejected (cycle / multiple
+    /// parents), the call returns an error and earlier tuples in the list
+    /// remain applied.
     pub fn update(
         &mut self,
-        from: String,
-        to: String,
-        stamped_isometry: StampedIsometry,
-        kind: TransformType,
+        updates: Vec<(String, String, StampedIsometry, TransformType)>,
     ) -> PyResult<()> {
-        let core_stamped_isometry = CoreStampedIsometry::new(
-            stamped_isometry.translation(),
-            stamped_isometry.rotation(),
-            stamped_isometry.stamp(),
-        );
+        let core_updates: Vec<CoreTransformUpdate> = updates
+            .into_iter()
+            .map(|(from, to, stamped_isometry, kind)| {
+                let core_iso = CoreStampedIsometry::new(
+                    stamped_isometry.translation(),
+                    stamped_isometry.rotation(),
+                    stamped_isometry.stamp(),
+                );
+                CoreTransformUpdate::new(from, to, core_iso, kind.into())
+            })
+            .collect();
 
         self.inner
-            .update(&from, &to, core_stamped_isometry, kind.into())
+            .update(&core_updates)
             .map_err(core_err_to_pyerr)?;
         Ok(())
     }
@@ -346,9 +356,9 @@ impl BufferTree {
             .map_err(|e| PyValueError::new_err(format!("Failed to save visualization: {}", e)))
     }
 
-    /// Register a Python callable as an observer
+    /// Register a Python callable as an observer.
     ///
-    /// The callable will be invoked whenever a transform is updated.
+    /// The callable will be invoked once per transform inserted via `update`.
     /// The callable signature should be: callback(from: str, to: str, transform: StampedIsometry, kind: TransformType) -> None
     ///
     /// When registered, the observer will immediately receive callbacks for all existing transforms in the buffer.

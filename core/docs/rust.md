@@ -15,30 +15,42 @@ cargo build
 
 This will create a local buffer, this buffer will NOT fill itself!
 
+`BufferTree::update` takes a slice of `TransformUpdate`. Pass a one-element
+slice to insert a single transform, or many to insert them in one bulk call —
+observers (e.g. the rerun visualizer) are notified once per call with the full
+batch, which lets columnar observers send their data in one shot.
+
 ```rust
-use schiebung_core::BufferTree;
+use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
 
-let buffer = BufferTree::new();
-let stamped_isometry = StampedIsometry {
-    isometry: Isometry::from_parts(
-        Translation3::new(
-            1.0,
-            2.0,
-            3.0,
-        ),
-        UnitQuaternion::new_normalize(Quaternion::new(
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        )),
-    ),
-    stamp: 1_000_000_000  // nanoseconds (1 second)
-};
-buffer.update("base_link", "target_link", stamped_isometry, TransformType::Static);
+let mut buffer = BufferTree::new();
+let stamped_isometry = StampedIsometry::new(
+    [1.0, 2.0, 3.0],          // translation
+    [0.0, 0.0, 0.0, 1.0],     // quaternion (x, y, z, w)
+    1_000_000_000,            // nanoseconds (1 second)
+);
 
-let transform = buffer.lookup_transform("base_link", "target_link", 1.0);
+// Single update: pass a 1-element slice.
+buffer.update(&[TransformUpdate::new(
+    "base_link",
+    "target_link",
+    stamped_isometry.clone(),
+    TransformType::Static,
+)])?;
+
+// Bulk update: many edges in one call.
+buffer.update(&[
+    TransformUpdate::new("a", "b", stamped_isometry.clone(), TransformType::Dynamic),
+    TransformUpdate::new("a", "c", stamped_isometry.clone(), TransformType::Dynamic),
+])?;
+
+let transform = buffer.lookup_transform("base_link", "target_link", 1_000_000_000)?;
+# Ok::<(), schiebung::TfError>(())
 ```
+
+The call is **fail-fast**: if any update in the slice is rejected (graph cycle
+or multiple parents), the call returns `Err` immediately and earlier updates in
+the slice remain applied.
 
 ## How it works
 
@@ -71,7 +83,7 @@ lookup_transform will fail if:
 
 ### Observer
 
-It is possible to register an observer to the buffer, on registration the buffer sends the latest transform for each link in the graph to the observer. Afterwards the observer is notified whenever a transform is updated or added to the buffer.
+It is possible to register an observer to the buffer. On registration the buffer replays the current state of the graph (every transform on every edge) to the observer in a single `on_update` call. After that, the observer is notified once per `BufferTree::update` call with the full slice of `TransformUpdate`s from that call. This batch contract is what enables observers like the rerun visualizer to bulk-send columnar data per `update`.
 
 ### Visualizer
 

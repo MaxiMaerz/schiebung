@@ -1,6 +1,6 @@
 use crate::buffer::BufferTree;
 use crate::error::TfError;
-use crate::types::{StampedIsometry, TransformType};
+use crate::types::{StampedIsometry, TransformType, TransformUpdate};
 
 /// Trait for loading transforms from various file formats into a BufferTree
 pub trait FormatLoader {
@@ -30,31 +30,22 @@ impl FormatLoader for UrdfLoader {
             TfError::LoaderError(format!("Failed to read URDF file '{}': {}", path, e))
         })?;
 
-        // Iterate through all joints and extract transforms
+        // Collect all joints into a single batch so observers (e.g. rerun) can
+        // bulk-log them in one columnar call.
+        use nalgebra::UnitQuaternion;
+        let mut updates: Vec<TransformUpdate> = Vec::with_capacity(robot.joints.len());
         for joint in &robot.joints {
-            // Get parent and child link names
-            let parent = &joint.parent.link;
-            let child = &joint.child.link;
-
-            // Convert URDF pose (xyz + rpy) to StampedIsometry (translation + quaternion)
             let translation = [
                 joint.origin.xyz[0],
                 joint.origin.xyz[1],
                 joint.origin.xyz[2],
             ];
-
-            // Convert roll-pitch-yaw to quaternion
-            // URDF uses fixed-axis (extrinsic) XYZ Euler angles
             let (roll, pitch, yaw) = (
                 joint.origin.rpy[0],
                 joint.origin.rpy[1],
                 joint.origin.rpy[2],
             );
-
-            // Convert Euler angles to quaternion using nalgebra
-            // nalgebra's from_euler_angles uses intrinsic rotations (ZYX order)
-            // URDF uses extrinsic XYZ, which is equivalent to intrinsic ZYX in reverse
-            use nalgebra::UnitQuaternion;
+            // nalgebra from_euler_angles uses intrinsic ZYX, equivalent to URDF's extrinsic XYZ.
             let rotation_quat = UnitQuaternion::from_euler_angles(roll, pitch, yaw);
             let rotation = [
                 rotation_quat.i,
@@ -62,20 +53,19 @@ impl FormatLoader for UrdfLoader {
                 rotation_quat.k,
                 rotation_quat.w,
             ];
-
-            // Create stamped isometry with timestamp 0 (static transforms are time-invariant)
             let stamped_isometry = StampedIsometry::new(translation, rotation, 0);
 
-            // Load into buffer as static transform
-            buffer
-                .update(parent, child, stamped_isometry, TransformType::Static)
-                .map_err(|e| {
-                    TfError::LoaderError(format!(
-                        "Failed to add transform from '{}' to '{}': {}",
-                        parent, child, e
-                    ))
-                })?;
+            updates.push(TransformUpdate::new(
+                joint.parent.link.clone(),
+                joint.child.link.clone(),
+                stamped_isometry,
+                TransformType::Static,
+            ));
         }
+
+        buffer
+            .update(&updates)
+            .map_err(|e| TfError::LoaderError(format!("Failed to load URDF transforms: {}", e)))?;
 
         Ok(())
     }

@@ -8,9 +8,16 @@ pub struct TransformClient {
 }
 
 impl TransformClient {
-    /// Create a new transform publisher
+    /// Create a new transform publisher with default zenoh config (peer mode, multicast discovery).
     pub async fn new() -> Result<Self, CommsError> {
-        let config = ZenohConfig::default();
+        Self::with_config(ZenohConfig::default()).await
+    }
+
+    /// Create a new transform publisher with an explicit zenoh config.
+    ///
+    /// Use this to pin the client to known endpoints (e.g. for tests or deployments
+    /// where multicast discovery is unavailable).
+    pub async fn with_config(config: ZenohConfig) -> Result<Self, CommsError> {
         let zenoh_config = config.to_zenoh_config()?;
 
         let session = zenoh::open(zenoh_config)
