@@ -1,3 +1,6 @@
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 
 use rerun::{RecordingStream, TimeColumn};
@@ -14,6 +17,26 @@ use schiebung::{BufferObserver, TransformType, TransformUpdate};
 /// If the model (e.g. a URDF) is loaded via rerun the `publish_static_transforms`
 /// flag should be set to false; otherwise the static transforms will be logged
 /// twice.
+///
+/// # Example
+///
+/// ```no_run
+/// use rerun::RecordingStreamBuilder;
+/// use schiebung::BufferTree;
+/// use schiebung_rerun::RerunObserver;
+///
+/// let rec = RecordingStreamBuilder::new("my_app").spawn()?;
+/// let mut buffer = BufferTree::new();
+///
+/// // Every subsequent buffer.update(&[...]) is bulk-logged to Rerun on
+/// // the "stable_time" timeline.
+/// buffer.register_observer(Box::new(RerunObserver::new(
+///     rec,
+///     /* publish_static_transforms = */ true,
+///     "stable_time".to_string(),
+/// )));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct RerunObserver {
     rec: RecordingStream,
     publish_static_transforms: bool,
@@ -21,6 +44,19 @@ pub struct RerunObserver {
 }
 
 impl RerunObserver {
+    /// Build a new `RerunObserver`.
+    ///
+    /// - `rec` is the destination [`RecordingStream`] (typically created via
+    ///   [`rerun::RecordingStreamBuilder`]).
+    /// - `publish_static_transforms` controls whether static edges are forwarded
+    ///   to Rerun. Set to `false` when another producer already populates Rerun's
+    ///   transform tree with the same static frames — for example when calling
+    ///   [`rerun::RecordingStream::log_file_from_path`] on a URDF, which loads
+    ///   every link's static offset itself. Forwarding the same static edges
+    ///   from the buffer in that case results in duplicated frames.
+    /// - `timeline` is the name of the Rerun timeline to attach dynamic
+    ///   transform timestamps to (e.g. `"stable_time"`). Static transforms
+    ///   ignore this and are sent without a time index.
     pub fn new(rec: RecordingStream, publish_static_transforms: bool, timeline: String) -> Self {
         RerunObserver {
             rec,

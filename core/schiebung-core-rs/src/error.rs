@@ -1,19 +1,32 @@
-/// Enumerates the different types of errors
+/// Errors returned by [`BufferTree`](crate::BufferTree) lookups and updates.
+///
+/// Each variant carries a human-readable message describing the offending
+/// frames or graph state. The wrapped [`String`] is meant for logs and error
+/// reporting — match on the variant for programmatic handling.
 #[derive(Clone, Debug)]
 pub enum TfError {
-    /// Error due to looking up too far in the past. I.E the information is no longer available in the TF Cache.
+    /// The requested timestamp is older than the oldest sample retained in
+    /// the per-edge history. Increase [`BufferConfig::max_history_size`](crate::BufferConfig)
+    /// or query a more recent stamp.
     AttemptedLookupInPast(String),
-    /// Error due ti the transform not yet being available.
+    /// The requested timestamp is newer than the newest sample on this edge.
+    /// The transform has not been published yet.
     AttemptedLookUpInFuture(String),
-    /// There is no path between the from and to frame.
+    /// No connecting path exists between `from` and `to` in the current graph.
+    /// The frames may not be linked yet, or one of them is unknown.
     CouldNotFindTransform(String),
-    /// The graph is cyclic or the target has multiple incoming edges.
+    /// Inserting the requested edge would create a cycle, or the child frame
+    /// already has a different parent. The graph must remain a forest.
     InvalidGraph(String),
-    /// Error loading or parsing a file format (URDF, USD, etc.)
+    /// Failed to load or parse a model file (URDF, USD, etc.) into the buffer.
     LoaderError(String),
 }
 
 impl TfError {
+    /// Render the error as a `TfError.<Variant>: <message>` string suitable
+    /// for log output. Same content as the [`Display`](std::fmt::Display)
+    /// impl; provided as a method for callers that want it without going
+    /// through formatting machinery.
     pub fn to_string(&self) -> String {
         match self {
             TfError::AttemptedLookupInPast(msg) => {

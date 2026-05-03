@@ -2,16 +2,34 @@ use crate::buffer::BufferTree;
 use crate::error::TfError;
 use crate::types::{StampedIsometry, TransformType, TransformUpdate};
 
-/// Trait for loading transforms from various file formats into a BufferTree
+/// Adapter for bulk-loading transforms from a model file into a
+/// [`BufferTree`].
+///
+/// Implementors typically parse a robot description (URDF, USD, ...) and
+/// turn each link-to-link offset into a [`TransformUpdate`] of kind
+/// [`TransformType::Static`], then push the whole batch in a single
+/// [`BufferTree::update`] call.
 pub trait FormatLoader {
-    /// Load transforms from a file into the provided buffer
+    /// Parse the file at `path` and apply every contained transform to
+    /// `buffer` in a single batch. Returns [`TfError::LoaderError`] if the
+    /// file cannot be read, is malformed, or its transforms violate the
+    /// buffer's graph invariants.
     fn load_into_buffer(&self, path: &str, buffer: &mut BufferTree) -> Result<(), TfError>;
 }
 
-/// URDF format loader
+/// [`FormatLoader`] for URDF (Unified Robot Description Format) files.
+///
+/// Each `<joint>` becomes one static edge from `parent.link` to `child.link`
+/// using the joint's `<origin xyz="..." rpy="..."/>`. All edges land in the
+/// buffer with timestamp `0` because URDF describes the rest pose, not a
+/// time series — drive the actuated joints separately by calling
+/// [`BufferTree::update`] with [`TransformType::Dynamic`] entries on each
+/// timestep.
 pub struct UrdfLoader;
 
 impl UrdfLoader {
+    /// Construct a fresh loader. The struct holds no state, so this is
+    /// equivalent to [`UrdfLoader::default`].
     pub fn new() -> Self {
         UrdfLoader
     }

@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["transform", "tf", "tf2"]
 categories = ["science::robotics"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 nalgebra = "0.33.2"
 petgraph = "0.7.1"

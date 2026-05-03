@@ -27,6 +27,14 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose -- --test-threads=1
+      - name: Run doctests
+        run: cargo test --doc -p schiebung -p schiebung-rerun --verbose
+      - name: Build rustdoc (deny warnings)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        # Scoped to the published crates: a workspace-wide build collides on
+        # duplicate `server` bin names between `comms` and `schiebung-server`.
+        run: cargo doc -p schiebung -p schiebung-rerun --no-deps
 
   # Python tests for all packages
   python-test:
