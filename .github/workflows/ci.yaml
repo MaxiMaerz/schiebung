@@ -68,4 +68,10 @@ jobs:
         run: |
           pip install pytest
           pip install ../../target/wheels/*.whl
-          pytest || echo "No tests found or tests skipped"
+          # Skip pytest when the package has no tests directory; otherwise
+          # let pytest's exit code propagate so real failures fail CI.
+          if [ -d tests ]; then
+            pytest -v
+          else
+            echo "No tests/ directory in ${{ matrix.package.name }}, skipping."
+          fi

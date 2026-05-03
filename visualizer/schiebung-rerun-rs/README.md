@@ -10,7 +10,7 @@
 
 ## At a glance
 
-```rust
+```rust,no_run
 use rerun::RecordingStreamBuilder;
 use schiebung::BufferTree;
 use schiebung_rerun::RerunObserver;
