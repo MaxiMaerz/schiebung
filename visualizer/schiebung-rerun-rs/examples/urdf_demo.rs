@@ -30,6 +30,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     rec.log_file_from_path(urdf_path.to_str().unwrap(), None, true)?;
 
+    // Place a small static cube in the robot's workspace so we can visualize
+    // the distance from the wrist tip to it as the arm moves. Insert the
+    // transform into the buffer so we can query it, and log the visual +
+    // transform directly to rerun (the observer skips static transforms here
+    // because the URDF loader has already populated rerun's transform tree).
+    let cube_pose = StampedIsometry::from_secs([0.6, 0.4, 1.0], [0.0, 0.0, 0.0, 1.0], 0.0);
+    buffer.update(&[TransformUpdate::new(
+        "base_link",
+        "target_cube",
+        cube_pose.clone(),
+        TransformType::Static,
+    )])?;
+
+    rec.log_static(
+        "target_cube",
+        &[
+            &rerun::Transform3D::from_translation(cube_pose.translation().map(|v| v as f32))
+                .with_quaternion(rerun::Quaternion::from_xyzw(
+                    cube_pose.rotation().map(|v| v as f32),
+                ))
+                .with_parent_frame("base_link".to_string()) as &dyn rerun::AsComponents,
+            &rerun::Boxes3D::from_half_sizes([[0.05, 0.05, 0.05]])
+                .with_colors([rerun::Color::from_rgb(220, 60, 60)])
+                .with_fill_mode(rerun::FillMode::Solid),
+        ],
+    )?;
+
     // Define all dynamic (revolute) joints from the URDF with their initial transforms
     // Each entry: (parent_link, child_link, xyz, rpy)
     let dynamic_joints: &[(&str, &str, [f64; 3], [f64; 3])] = &[
@@ -115,6 +142,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
 
         buffer.update(&updates)?;
+
+        // Log the vector from the last wrist link to the cube, with the
+        // distance as a label. Attach the entity to the URDF loader's
+        // existing `wrist_3_link` frame via Transform3D::parent_frame so
+        // rerun can trace the frame back to the view origin.
+        let to_cube = buffer.lookup_latest_transform("wrist_3_link", "target_cube")?;
+        let distance = to_cube.norm();
+        rec.set_timestamp_secs_since_epoch("stable_time", time);
+        rec.log(
+            "wrist_3_link/to_cube",
+            &[
+                &rerun::Transform3D::default().with_parent_frame("wrist_3_link".to_string())
+                    as &dyn rerun::AsComponents,
+                &rerun::Arrows3D::from_vectors([to_cube.translation()])
+                    .with_labels([format!("{:.2} m", distance)])
+                    .with_colors([rerun::Color::from_rgb(220, 60, 60)]),
+            ],
+        )?;
     }
 
     Ok(())
