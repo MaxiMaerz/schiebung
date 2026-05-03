@@ -2,7 +2,7 @@
 
 [Rerun](https://rerun.io) visualization adapter for the [`schiebung`](https://crates.io/crates/schiebung) transform buffer.
 
-`RerunObserver` implements `BufferObserver` and bulk-logs every batched buffer update to a Rerun recording stream via the columnar `send_columns` API — one call per entity path per batch — so a full robot-pose snapshot becomes a single bulk write rather than N row-oriented logs.
+`RerunObserver` implements `BufferObserver` and bulk-logs every batched buffer update to a Rerun recording stream via the columnar `send_columns` API — one call per entity path per batch — so a full transform-graph snapshot (e.g. a multi-sensor rig or a robot pose) becomes a single bulk write rather than N row-oriented logs.
 
 - **Documentation:** <https://maximaerz.github.io/schiebung/>
 - **Repository:** <https://github.com/MaxiMaerz/schiebung>

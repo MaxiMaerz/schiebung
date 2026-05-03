@@ -10,3 +10,19 @@ members = [
     "server/schiebung-server-rs",
     "server/schiebung-server-py",
 ]
+
+# Single source of truth for every crate's version. Member crates inherit
+# this via `version.workspace = true` in their own [package] table; the
+# Python pyproject.tomls inherit it from there via maturin's dynamic version.
+# Bumping releases is one edit here (plus the matching version below for
+# the inter-crate path-dep pins).
+[workspace.package]
+version = "0.3.0"
+
+# Centralized declaration for path deps that ALSO need a published version
+# pin (cargo publish requires `version = "..."` on path deps). Member crates
+# pick this up via `schiebung.workspace = true`. The version pin MUST match
+# `[workspace.package].version` above. Internal-only path deps don't go
+# here — they stay as plain `{ path = "..." }`.
+[workspace.dependencies]
+schiebung = { path = "core/schiebung-core-rs", version = "0.3.0" }

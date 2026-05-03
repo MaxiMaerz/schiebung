@@ -1,6 +1,6 @@
 [package]
 name = "schiebung-rerun-py"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Python bindings for schiebung with Rerun visualization"
 license = "MIT"

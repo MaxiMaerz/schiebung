@@ -4,7 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "schiebung-rerun"
-version = "0.1.0"
+# Sourced from this crate's Cargo.toml (which inherits from the workspace).
+dynamic = ["version"]
 description = "Python bindings for schiebung with Rerun visualization"
 readme = "README.md"
 requires-python = ">=3.10"
