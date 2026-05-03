@@ -1,6 +1,6 @@
 [package]
 name = "schiebung-rerun"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Rerun visualization for schiebung transforms"
 license = "MIT"
@@ -16,7 +16,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-schiebung = { path = "../../core/schiebung-core-rs", version = "0.1.0" }
+schiebung = { path = "../../core/schiebung-core-rs", version = "0.2.0" }
 rerun = "0.28.1"
 nalgebra = "0.33.2"
 log = "0.4"
