@@ -1,14 +1,20 @@
 # Schiebung
 
-Full [Documenation](https://maximaerz.github.io/schiebung/)
+Full [documentation](https://maximaerz.github.io/schiebung/) · API reference: [docs.rs/schiebung](https://docs.rs/schiebung) · [docs.rs/schiebung-rerun](https://docs.rs/schiebung-rerun)
 
-Schiebung is german for "shift" as in "shift the frame" or "shift the coordinate system".
+Schiebung is German for "shift" — as in shifting between coordinate frames.
 
-Schiebung offers a library which stores transformations (or isometries) between frames. These isometries are between two frames.
-It is assumed that all frames are either connected or root/leaf nodes. The resulting structure is used to produce any transformation between frames by chaining their transformations. Additionally each pair of frames keeps a history of transformations, this allows a user to ask for transformations in the past, if the exact time cannot be found the transformation between the two best matching times will be interpolated (lerp/slerp).
+Schiebung is an in-memory transform graph. You declare named frames, push time-stamped rigid-body transforms (isometries) between them, and query any frame's pose relative to any other at any time. Missing samples are interpolated (lerp/slerp); the graph is enforced to be a forest so chains are unambiguous.
 
-The original concept and a far better explanation can be found here: [ROS tf](http://wiki.ros.org/tf)
-It also draws inspiration from the rust implementation for ROS 1 [rosrust_tf](https://github.com/arjo129/rustros_tf)
+Useful anywhere you have multiple coordinate systems that move relative to each other:
+
+- Multi-sensor fusion (LiDAR / camera / IMU rigs, surveying)
+- Simulation, games, physics engines
+- Motion capture, animation pipelines, articulated CAD
+- AR/VR (HMD, controllers, world anchors)
+- Robotics, where it serves as a lightweight, ROS-free alternative to [TF2](http://wiki.ros.org/tf) when you don't want to pull in the full ROS stack
+
+Inspiration also from the Rust ROS-1 port [rosrust_tf](https://github.com/arjo129/rustros_tf).
 
 [demo.webm](https://github.com/user-attachments/assets/5c167e6c-ca6a-4a40-af11-8d94ad14fd95)
 
@@ -19,8 +25,7 @@ We publish the bodies once (Sun, Earth and Moon) and just update the transforms 
 - moon circles around the earth
 - The distance between the moon and sun is calculated by a simple frame lookup (Moon -> Sun)
 
-This allows the user to make a complexe (in this context) problem complelty trivial. As long as the TransformBuffer is updated all derived transformations
-can be calculated at all times (using lerp/slerp). It also makes it possible to calculate transformations without knowing anything of the actual transformation chain as long as the end and start of the chain are known.
+This makes a complex problem trivial. As long as the TransformBuffer is updated, all derived transforms can be calculated at any timestamp (using lerp/slerp), without the caller needing to know anything about the actual chain — only the start and end frames.
 
 [demo_urdf.webm](https://github.com/user-attachments/assets/6f412500-7a5e-43f2-892f-d194e0504573)
 
@@ -28,36 +33,37 @@ The URDF demo loads a 6-DOF arm via the URDF loader, animates each joint, and pl
 
 ## Motivation
 
-TF2 is available in ROS2, the implementation is super sturdy and battle tested.
-However some project might not want the huge ROS dependencies overhead. While it is possible to use TF2 without ROS, it lacks some features we need.
+ROS [TF2](http://wiki.ros.org/tf) is the canonical implementation of this idea, battle-tested and the right choice if you're already in the ROS ecosystem. Outside of ROS — embedded systems, simulation, AR/VR, custom calibration pipelines — pulling in the full ROS stack just to chain coordinate transforms is a heavy ask. Schiebung is what you reach for when you want the abstraction without the framework.
 
-It is most likely that our implementation also:
+What you get over rolling your own:
 
-- is faster than TF2 (40-80ns per lookup)
-- is memory safe (typical RUST argument)
-
-However TF2 is a great tool and will most likely be the best choice for ROS 2 based projects. This project is very new and Bugs will most likely be found.
+- Sub-microsecond lookups (40–80 ns measured per query)
+- Memory safe (Rust); pure-Rust dependency footprint
+- Optional features — pull in just the core, or also a [Rerun](https://rerun.io) visualizer / a [Cap'n Proto](https://capnproto.org) + [Zenoh](https://zenoh.io) server
+- First-class Python bindings via PyO3, with NumPy interop
 
 ## Design goals
 
-- As fast as possible: Sub-microsecond lookups and updates
-- ROS (2) agnostic: While it is possible to use alongside TF2, the target is a system outside the ROS ecosystem.
-- All features are optional: Depending on user requirements dependencies can be pulled in on required feature set
-- Minimal, scalable and fast client server structure: We use [cap'n proto](https://capnproto.org) + [zenoh](https://zenoh.io) for communication.
-- Easy to use: We ship a urdf loader and provide a simple [Rerun](https://rerun.io) API.
+- As fast as possible: sub-microsecond lookups and updates
+- Framework-agnostic: usable from any application that wants a transform graph, not tied to ROS
+- All features are optional: depending on what you need, you can pull in just the core or also the visualizer / server layers
+- Minimal, scalable, fast client/server: [Cap'n Proto](https://capnproto.org) + [Zenoh](https://zenoh.io) for over-the-wire transport
+- Easy to use: a URDF loader is shipped for the robotics case, a simple [Rerun](https://rerun.io) observer for visualization
 
 ## Status
 
 This library is still under development and the API is not considered stable yet and might change.
 
-- The core library is fairly well tested, the python bindings work.
-- The rerun implementation is a rather shallow wrapper around the core and should be "ok"
+- The core library is fairly well tested, the Python bindings work.
+- The Rerun implementation is a rather shallow wrapper around the core and should be "ok".
 - For the server and the full implementation (server + rerun) there is quite some work left.
 
 ## Usage
 
-Check the other pages for examples and use cases:
+The hosted documentation has runnable examples for each layer:
 
-- [Core](schiebung-core/rust.md): Contains a rust and python implementation for the Buffer only, no dependencies to rerun or zenoh.
-- [Comms](schiebung-comms/index.md): Contains a rust and python implementation for the client server structure using cap'n proto and zenoh.
-- [Visualizer](schiebung-visualizer/rust.md): Contains a rust and python implementation for the visualizer using rerun.
+- [Core](https://maximaerz.github.io/schiebung/schiebung-core/rust/) — Rust and Python implementation of the buffer only, no Rerun or Zenoh dependencies.
+- [Comms](https://maximaerz.github.io/schiebung/schiebung-comms/) — Rust and Python implementation of the client/server using Cap'n Proto and Zenoh.
+- [Visualizer](https://maximaerz.github.io/schiebung/schiebung-visualizer/rust/) — Rust and Python implementation of the visualizer using Rerun.
+
+Crate-level READMEs ([core](core/schiebung-core-rs/README.md), [rerun](visualizer/schiebung-rerun-rs/README.md)) and the [`examples/`](visualizer/schiebung-rerun-rs/examples/) directory have shorter snippets to copy.

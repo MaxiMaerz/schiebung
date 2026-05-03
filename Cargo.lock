@@ -1618,7 +1618,7 @@ dependencies = [
 
 [[package]]
 name = "comms"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "capnp",
  "capnpc",
@@ -9633,7 +9633,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "confy",
@@ -9651,7 +9651,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nalgebra",
  "numpy",
@@ -9661,7 +9661,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung-rerun"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "log",
  "nalgebra",
@@ -9671,7 +9671,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung-rerun-py"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "pyo3",
  "rerun",
@@ -9682,7 +9682,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung-server"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "comms",
@@ -9700,7 +9700,7 @@ dependencies = [
 
 [[package]]
 name = "schiebung-server-py"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "pyo3",
  "schiebung",

@@ -1,8 +1,10 @@
 # schiebung
 
-Fast, memory-safe transform buffer for robotics — a ROS-agnostic alternative to TF2.
+Fast, memory-safe in-memory transform graph with time-aware lookups.
 
-`schiebung` stores time-stamped isometries between named frames in a graph and lets you look up any transform between two frames by chaining the edges. It supports interpolation (lerp/slerp) when the requested timestamp falls between samples, batched updates, and a URDF loader.
+`schiebung` stores time-stamped isometries between named frames and lets you query any frame's pose relative to any other by chaining the edges. It supports lerp/slerp interpolation when the requested timestamp falls between samples, batched updates, and a URDF loader for robotics use.
+
+Useful anywhere you have multiple coordinate systems that move relative to each other — multi-sensor fusion, simulation, motion capture, AR/VR, robotics. The closest analogue is ROS [TF2](http://wiki.ros.org/tf); `schiebung` is for projects that want the abstraction without pulling in ROS.
 
 - **Documentation:** <https://maximaerz.github.io/schiebung/>
 - **Repository:** <https://github.com/MaxiMaerz/schiebung>
