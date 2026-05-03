@@ -15,6 +15,10 @@ authors = [
 
 keywords = ["robotics", "transform"]
 
+dependencies = [
+    "numpy>=1.20",
+]
+
 [project.urls]
 Homepage = "https://github.com/MaxiMaerz/schiebung/"
 Repository = "https://github.com/MaxiMaerz/schiebung/"

@@ -2,6 +2,8 @@
 
 Rust library for visualizing Schiebung transforms using [Rerun](https://rerun.io/).
 
+> **API reference:** the full type-by-type API is on [docs.rs/schiebung-rerun](https://docs.rs/schiebung-rerun). This page is a quick-start; use the rustdoc reference for exact signatures.
+
 ## Overview
 
 This crate provides a `RerunObserver` that can be attached to a `BufferTree` to automatically log all transform updates to Rerun for visualization.

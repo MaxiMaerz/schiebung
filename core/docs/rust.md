@@ -3,6 +3,8 @@
 This crate contains the pure Rust core functionality of the Schiebung library.
 It provides a buffer for storing and retrieving transforms without any Python dependencies.
 
+> **API reference:** the full type-by-type API is on [docs.rs/schiebung](https://docs.rs/schiebung). This page covers concepts and motivation; use the rustdoc reference when you need exact signatures or behavior.
+
 ## Installation
 
 ```bash

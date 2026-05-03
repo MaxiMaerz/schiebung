@@ -1,5 +1,49 @@
-use pyo3::exceptions::PyValueError;
+use numpy::ndarray::Array2;
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2, PyUntypedArrayMethods};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyFloat, PyType};
+use pyo3::PyTypeInfo;
+
+/// Resolve a Python `stamp` argument to nanoseconds.
+///
+/// Dispatch is **type-driven** to keep the call site short and unambiguous:
+/// a Python `int` is treated as nanoseconds since the Unix epoch, and a
+/// Python `float` is treated as seconds. This matches the `i64` /
+/// `f64`-secs split used by [`CoreStampedIsometry::new`] and
+/// [`CoreStampedIsometry::from_secs`].
+///
+/// Floats are checked before ints because PyO3 happily coerces `int` to
+/// `f64`, but we want the integer path to win whenever the caller actually
+/// passed an int. Booleans are an `int` subtype and resolve to ns for
+/// consistency with Python semantics.
+fn stamp_to_ns(stamp: &Bound<'_, PyAny>) -> PyResult<i64> {
+    if PyFloat::is_type_of(stamp) {
+        let secs: f64 = stamp.extract()?;
+        Ok((secs * 1_000_000_000.0) as i64)
+    } else if let Ok(ns) = stamp.extract::<i64>() {
+        Ok(ns)
+    } else {
+        Err(PyTypeError::new_err(
+            "stamp must be an int (nanoseconds since the Unix epoch) \
+             or a float (seconds since the Unix epoch)",
+        ))
+    }
+}
+
+/// Build a 4×4 homogeneous transform matrix from a core StampedIsometry.
+fn homogeneous_matrix(iso: &CoreStampedIsometry) -> Array2<f64> {
+    // nalgebra's Isometry3 → 4×4 returns column-major; we want a row-major
+    // ndarray for numpy. Build it explicitly to keep the layout obvious.
+    let m = iso.isometry.to_homogeneous();
+    let mut out = Array2::<f64>::zeros((4, 4));
+    for r in 0..4 {
+        for c in 0..4 {
+            out[[r, c]] = m[(r, c)];
+        }
+    }
+    out
+}
 
 use ::schiebung::{
     BufferObserver as CoreBufferObserver, BufferTree as CoreBufferTree,
@@ -142,17 +186,28 @@ impl From<CoreStampedIsometry> for StampedIsometry {
 
 #[pymethods]
 impl StampedIsometry {
-    /// Create a new StampedIsometry with timestamp in nanoseconds
+    /// Create a new `StampedIsometry`.
+    ///
+    /// The `stamp` argument accepts either an `int` (interpreted as
+    /// nanoseconds since the Unix epoch) or a `float` (interpreted as
+    /// seconds since the Unix epoch). Dispatch is by Python type, so the
+    /// two examples below are equivalent:
+    ///
+    /// ```python
+    /// StampedIsometry([1, 2, 3], [0, 0, 0, 1], 10_500_000_000)  # int → ns
+    /// StampedIsometry([1, 2, 3], [0, 0, 0, 1], 10.5)            # float → s
+    /// ```
     ///
     /// # Arguments
     /// * `translation` - [x, y, z] position
     /// * `rotation` - [x, y, z, w] quaternion
-    /// * `stamp_ns` - Timestamp in nanoseconds since Unix epoch
+    /// * `stamp` - Timestamp; `int` for nanoseconds or `float` for seconds.
     #[new]
-    fn new(translation: [f64; 3], rotation: [f64; 4], stamp_ns: i64) -> Self {
-        StampedIsometry {
+    fn new(translation: [f64; 3], rotation: [f64; 4], stamp: Bound<'_, PyAny>) -> PyResult<Self> {
+        let stamp_ns = stamp_to_ns(&stamp)?;
+        Ok(StampedIsometry {
             inner: CoreStampedIsometry::new(translation, rotation, stamp_ns),
-        }
+        })
     }
 
     /// Create a new StampedIsometry with timestamp in seconds (float)
@@ -177,6 +232,104 @@ impl StampedIsometry {
     /// Get the rotation as [x, y, z, w] quaternion
     fn rotation(&self) -> [f64; 4] {
         self.inner.rotation()
+    }
+
+    /// Build the 4×4 homogeneous transform matrix as a numpy array.
+    ///
+    /// Row-major layout: top-left 3×3 is the rotation matrix, top-right 3×1
+    /// is the translation, bottom row is `[0, 0, 0, 1]`. Composes naturally
+    /// via `mat @ point` and `mat1 @ mat2`.
+    fn as_matrix<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        homogeneous_matrix(&self.inner).into_pyarray(py)
+    }
+
+    /// Get the translation as a numpy array of shape (3,).
+    fn as_translation<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.translation().to_vec().into_pyarray(py)
+    }
+
+    /// Get the rotation quaternion as a numpy array of shape (4,) in xyzw order.
+    fn as_quaternion<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.rotation().to_vec().into_pyarray(py)
+    }
+
+    /// NumPy interop hook: makes `np.asarray(stamped_iso)` return the 4×4
+    /// homogeneous transform matrix. The `dtype` argument is accepted for
+    /// numpy compatibility; values that aren't `float64` (or `None`) raise.
+    /// The `copy` argument (NumPy 2.0+) is accepted but ignored — we always
+    /// return a fresh array.
+    ///
+    /// This means `StampedIsometry` works directly anywhere numpy expects
+    /// an array — `np.linalg.inv(iso)`, `mat @ iso`, `np.array(iso)`, etc.
+    #[pyo3(signature = (dtype=None, copy=None))]
+    fn __array__<'py>(
+        &self,
+        py: Python<'py>,
+        dtype: Option<Bound<'py, PyAny>>,
+        copy: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let _ = copy; // we always return a freshly-allocated array
+        if let Some(dtype) = dtype {
+            // Resolve to a numpy.dtype and check kind/itemsize match float64.
+            let np = py.import("numpy")?;
+            let requested = np.call_method1("dtype", (dtype,))?;
+            let kind: String = requested.getattr("kind")?.extract()?;
+            let itemsize: usize = requested.getattr("itemsize")?.extract()?;
+            if kind != "f" || itemsize != 8 {
+                return Err(PyValueError::new_err(
+                    "StampedIsometry only supports float64 arrays; \
+                     call .as_matrix().astype(...) for other dtypes",
+                ));
+            }
+        }
+        Ok(self.as_matrix(py))
+    }
+
+    /// Build a `StampedIsometry` from a 4×4 homogeneous transform matrix.
+    ///
+    /// Inverse of [`as_matrix`]/`__array__`. The matrix's bottom row is not
+    /// validated — callers are expected to pass a well-formed homogeneous
+    /// transform. Rotation is decomposed via `nalgebra::Rotation3` so any
+    /// non-orthonormal 3×3 block is silently approximated.
+    ///
+    /// The `stamp` argument follows the same int-or-float convention as
+    /// the constructor: `int` is nanoseconds, `float` is seconds.
+    #[classmethod]
+    #[pyo3(signature = (matrix, stamp=None))]
+    fn from_matrix(
+        _cls: &Bound<'_, PyType>,
+        matrix: PyReadonlyArray2<'_, f64>,
+        stamp: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let stamp_ns = match stamp {
+            Some(s) => stamp_to_ns(&s)?,
+            None => 0,
+        };
+        let shape = matrix.shape();
+        if shape != [4, 4] {
+            return Err(PyValueError::new_err(format!(
+                "matrix must have shape (4, 4), got {:?}",
+                shape
+            )));
+        }
+        let view = matrix.as_array();
+        let translation = [view[[0, 3]], view[[1, 3]], view[[2, 3]]];
+        let rot = nalgebra::Rotation3::from_matrix_unchecked(nalgebra::Matrix3::new(
+            view[[0, 0]],
+            view[[0, 1]],
+            view[[0, 2]],
+            view[[1, 0]],
+            view[[1, 1]],
+            view[[1, 2]],
+            view[[2, 0]],
+            view[[2, 1]],
+            view[[2, 2]],
+        ));
+        let q = nalgebra::UnitQuaternion::from_rotation_matrix(&rot);
+        let rotation = [q.i, q.j, q.k, q.w];
+        Ok(StampedIsometry {
+            inner: CoreStampedIsometry::new(translation, rotation, stamp_ns),
+        })
     }
 
     /// Get the timestamp in nanoseconds since Unix epoch
@@ -328,14 +481,16 @@ impl BufferTree {
     /// # Arguments
     /// * `from` - Source frame name
     /// * `to` - Target frame name
-    /// * `time` - Time in nanoseconds since Unix epoch
+    /// * `time` - Timestamp; `int` for nanoseconds or `float` for seconds
+    ///   (same dispatch as the [`StampedIsometry`] constructor).
     pub fn lookup_transform(
         &mut self,
         from: String,
         to: String,
-        time: i64,
+        time: Bound<'_, PyAny>,
     ) -> PyResult<StampedIsometry> {
-        let result = self.inner.lookup_transform(&from, &to, time);
+        let time_ns = stamp_to_ns(&time)?;
+        let result = self.inner.lookup_transform(&from, &to, time_ns);
         match result {
             Ok(transform) => Ok(StampedIsometry::from(transform)),
             Err(e) => Err(core_err_to_pyerr(e)),

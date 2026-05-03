@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["transform", "tf", "rerun", "robotics", "visualization"]
 categories = ["science::robotics", "visualization"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 schiebung = { path = "../../core/schiebung-core-rs", version = "0.1.0" }
 rerun = "0.28.1"

@@ -13,6 +13,10 @@ categories = ["science::robotics"]
 [dependencies]
 schiebung = { path = "../schiebung-core-rs" }
 pyo3 = { version = ">=0.26.0", features = ["abi3-py312"] }
+# ndarray is reached via numpy's re-export so we never link two versions
+# of it (which broke `into_pyarray` resolution on CI fresh-resolves).
+numpy = "0.27"
+nalgebra = "0.33.2"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

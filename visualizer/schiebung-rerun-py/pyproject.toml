@@ -15,6 +15,11 @@ authors = [
 
 keywords = ["robotics", "transform", "visualization", "rerun"]
 
+dependencies = [
+    "numpy>=1.20",
+    "rerun-sdk>=0.28.1",
+]
+
 [project.urls]
 Homepage = "https://github.com/MaxiMaerz/schiebung/"
 Repository = "https://github.com/MaxiMaerz/schiebung/"

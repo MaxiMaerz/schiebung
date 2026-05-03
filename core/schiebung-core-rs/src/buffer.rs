@@ -90,11 +90,19 @@ impl TransformHistory {
     }
 }
 
-/// Node representation with name and ancestors
+/// Cached metadata for a frame in the [`BufferTree`].
+///
+/// Stores the chain of ancestors back to the root so [`BufferTree::lookup_transform`]
+/// can compute paths between two frames in O(depth) without re-walking the
+/// graph each time. Maintained internally by `update_subtree_ancestors`;
+/// callers normally never construct or inspect this directly.
 #[derive(Debug, Clone)]
 pub struct Node {
+    /// Frame name this node represents.
     pub name: String,
+    /// Names of every ancestor from the root down to (but not including) `self`.
     pub ancestors: Vec<String>,
+    /// Internal node ids of every ancestor, in the same order as `ancestors`.
     pub ancestor_ids: Vec<usize>,
 }
 
@@ -149,22 +157,61 @@ impl NodeIndex {
     }
 }
 
-/// Trait to observe changes in the buffer.
+/// Receive notifications when the buffer is updated.
 ///
-/// `on_update` is called once per `BufferTree::update` call with the full
+/// `on_update` is called once per [`BufferTree::update`] call with the full
 /// batch of transforms inserted in that call. Implementations that only care
 /// about individual transforms can iterate the slice; implementations that can
 /// exploit batching (e.g. columnar logging) should consume the slice directly.
+///
+/// Observers are also called once on registration via
+/// [`BufferTree::register_observer`] with the full replay of the buffer state
+/// at that point, so a freshly-registered observer always sees a consistent
+/// snapshot of every edge.
 pub trait BufferObserver: Send + Sync {
+    /// Handle a batch of transforms that was just inserted into the buffer.
     fn on_update(&self, updates: &[TransformUpdate]);
 }
 
-/// The core BufferImplementation
-/// The TF Graph is represented as a DiGraphMap:
-/// This means the transforms build a acyclic direct graph
-/// We check if the graph is acyclic or if the target has multiple incoming edges
-/// We currently do NOT check if the graph is disconnected
-/// The frame names are the nodes and the transform history is saved on the edges
+/// In-memory transform graph with per-edge history.
+///
+/// Frames are nodes and transforms are directed edges that hold a bounded
+/// history of timestamped poses. The graph is enforced to be a forest: each
+/// node has at most one incoming edge, and inserting an edge that would
+/// create a cycle is rejected with [`TfError::InvalidGraph`].
+///
+/// Use [`update`](BufferTree::update) to insert one or more transforms in a
+/// single batch, and [`lookup_transform`](BufferTree::lookup_transform) /
+/// [`lookup_latest_transform`](BufferTree::lookup_latest_transform) to query
+/// any frame-to-frame transform that's reachable in the graph.
+///
+/// # Example
+///
+/// ```
+/// use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
+///
+/// let mut buffer = BufferTree::new();
+/// buffer.update(&[
+///     TransformUpdate::new(
+///         "world",
+///         "robot_base",
+///         StampedIsometry::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0),
+///         TransformType::Static,
+///     ),
+///     TransformUpdate::new(
+///         "robot_base",
+///         "tool",
+///         StampedIsometry::new([0.5, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+///         TransformType::Static,
+///     ),
+/// ])?;
+///
+/// // Composed lookup chains the two static edges:
+/// let tf = buffer.lookup_latest_transform("world", "tool")?;
+/// assert!((tf.translation()[0] - 0.5).abs() < 1e-6);
+/// assert!((tf.translation()[2] - 1.0).abs() < 1e-6);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct BufferTree {
     graph: DiGraphMap<usize, TransformHistory>,
     index: NodeIndex,
@@ -173,6 +220,11 @@ pub struct BufferTree {
 }
 
 impl BufferTree {
+    /// Construct an empty buffer.
+    ///
+    /// Loads [`BufferConfig`] from the platform-standard config location via
+    /// [`get_config`] (falling back to defaults if no file exists). The
+    /// returned buffer has no nodes, edges, or observers.
     pub fn new() -> Self {
         BufferTree {
             graph: DiGraphMap::new(),
@@ -415,11 +467,24 @@ impl BufferTree {
         Some(result_path)
     }
 
-    /// Lookup the latest transform without any checks
-    /// This can be used for static transforms or if the user does not care if the
-    /// transform is still valid.
-    /// NOTE: This might give you outdated transforms!
-    /// Returns the most recent timestamp from any edge in the composed path.
+    /// Look up a transform between two frames using the most recent sample
+    /// on every traversed edge.
+    ///
+    /// Walks the path from `from` to `to` in the graph (edges are traversed
+    /// either direction; reverse edges are inverted) and composes the
+    /// per-edge latest poses into a single [`StampedIsometry`]. The returned
+    /// `stamp` is the *maximum* timestamp seen across the composed edges, so
+    /// it reflects the most stale-bound part of the chain.
+    ///
+    /// **No staleness check is performed** — this returns whatever the
+    /// buffer last saw, which may be arbitrarily old. Use
+    /// [`lookup_transform`](BufferTree::lookup_transform) when you need
+    /// time-aware semantics.
+    ///
+    /// # Errors
+    ///
+    /// - [`TfError::CouldNotFindTransform`] if either frame is unknown or
+    ///   no path connects them.
     pub fn lookup_latest_transform(
         &self,
         from: &str,
@@ -461,13 +526,54 @@ impl BufferTree {
         }
     }
 
-    /// Lookup the transform at time
-    /// This will look for a transform at the provided time and can "time travel"
-    /// If any edge contains a transform older then time a AttemptedLookupInPast is raised
-    /// If the time is younger then any transform AttemptedLookUpInFuture is raised
-    /// If there is no perfect match the transforms around this time are interpolated
-    /// The interpolation is weighted with the distance to the time stamps
-    /// Time is in nanoseconds since Unix epoch
+    /// Look up a transform between two frames at a specific timestamp.
+    ///
+    /// Walks the path from `from` to `to` and, on each edge, returns the
+    /// stored sample whose stamp matches `time` exactly, or interpolates
+    /// (lerp/slerp) between the surrounding samples when there is no exact
+    /// hit. Static edges always return their single stored pose.
+    ///
+    /// `time` is in nanoseconds since the Unix epoch.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
+    ///
+    /// let mut buffer = BufferTree::new();
+    /// // Two samples on a dynamic edge, 1s apart.
+    /// buffer.update(&[
+    ///     TransformUpdate::new(
+    ///         "world",
+    ///         "robot",
+    ///         StampedIsometry::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+    ///         TransformType::Dynamic,
+    ///     ),
+    /// ])?;
+    /// buffer.update(&[
+    ///     TransformUpdate::new(
+    ///         "world",
+    ///         "robot",
+    ///         StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1_000_000_000),
+    ///         TransformType::Dynamic,
+    ///     ),
+    /// ])?;
+    ///
+    /// // Halfway between samples → lerp gives x = 0.5.
+    /// let tf = buffer.lookup_transform("world", "robot", 500_000_000)?;
+    /// assert!((tf.translation()[0] - 0.5).abs() < 1e-6);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`TfError::CouldNotFindTransform`] — either frame is unknown,
+    ///   no path connects them, or a dynamic edge along the path has fewer
+    ///   than 2 samples (so it cannot be interpolated).
+    /// - [`TfError::AttemptedLookupInPast`] — `time` is older than the
+    ///   oldest sample on some edge.
+    /// - [`TfError::AttemptedLookUpInFuture`] — `time` is newer than the
+    ///   newest sample on some edge.
     pub fn lookup_transform(
         &self,
         from: &str,
@@ -502,8 +608,12 @@ impl BufferTree {
         }
     }
 
-    /// Visualize the buffer tree as a DOT graph
-    /// Can not use internal visualizer because we Store the nodes in self.index
+    /// Render the current graph as a Graphviz DOT-format string.
+    ///
+    /// Each node is labeled with its frame name; each edge is labeled with
+    /// the most recent translation (`t=[x, y, z]`), Euler rotation
+    /// (`r=[r, p, y]`), and timestamp in seconds. Edges with no samples are
+    /// labeled `"No transforms"`.
     pub fn visualize(&self) -> String {
         // Create a mapping from index back to node name
         // Convert the graph to DOT format manually
@@ -539,8 +649,13 @@ impl BufferTree {
         dot
     }
 
-    /// Save the buffer tree as a PDF and dot file
-    /// Runs graphiz to generate the PDF, fails if graphiz is not installed
+    /// Write the current graph to disk as both `graph.dot` and `graph.pdf`
+    /// under [`BufferConfig::save_path`].
+    ///
+    /// The DOT file always succeeds; the PDF is generated by invoking the
+    /// external `dot` binary from Graphviz. If Graphviz is not installed the
+    /// PDF step prints a warning to stderr but the function still returns
+    /// `Ok(())` — only filesystem I/O errors on the DOT file propagate.
     pub fn save_visualization(&self) -> std::io::Result<()> {
         let filename = &self.config.save_path;
         println!("Saving visualization to {}/graph.(dot/pdf)", filename);

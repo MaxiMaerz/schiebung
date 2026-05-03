@@ -2,11 +2,19 @@ use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
 use std::cmp::Ordering;
 use std::fmt;
 
+/// Whether a transform is expected to change over time.
+///
+/// This drives both how the buffer interpolates lookups and how the
+/// `schiebung-rerun` observer routes the transform onto entity paths
+/// (`transforms/...` for [`Dynamic`](TransformType::Dynamic),
+/// `static_transforms/...` for [`Static`](TransformType::Static)).
 #[derive(Clone, Copy, Debug)]
 pub enum TransformType {
-    /// Changes over time
+    /// Changes over time. Each new sample is appended to the per-edge
+    /// history; lookups for past stamps interpolate.
     Dynamic = 0,
-    /// Does not change over time
+    /// Does not change over time. A single sample defines the edge for
+    /// the lifetime of the buffer.
     Static = 1,
 }
 
@@ -22,12 +30,12 @@ impl TryFrom<u8> for TransformType {
 }
 
 impl TransformType {
-    /// Create a static transform type
+    /// Convenience constructor returning [`TransformType::Static`].
     pub fn static_transform() -> Self {
         TransformType::Static
     }
 
-    /// Create a dynamic transform type
+    /// Convenience constructor returning [`TransformType::Dynamic`].
     pub fn dynamic_transform() -> Self {
         TransformType::Dynamic
     }
@@ -42,10 +50,16 @@ impl fmt::Display for TransformType {
     }
 }
 
+/// A 3D rigid-body transform paired with a wall-clock timestamp.
+///
+/// This is the unit value the buffer stores per edge; lookups return it,
+/// updates push it. Internally backed by [`nalgebra::Isometry3`] for
+/// translation + rotation, and an `i64` nanosecond Unix-epoch timestamp.
 #[derive(Clone, Debug)]
 pub struct StampedIsometry {
+    /// The rigid-body transform itself (translation + rotation).
     pub isometry: Isometry3<f64>,
-    /// Timestamp in nanoseconds since Unix epoch
+    /// Timestamp in nanoseconds since the Unix epoch.
     pub stamp: i64,
 }
 
@@ -127,6 +141,7 @@ impl StampedIsometry {
         [roll, pitch, yaw]
     }
 
+    /// Euclidean length of the translation component (rotation is ignored).
     pub fn norm(&self) -> f64 {
         self.isometry.translation.vector.norm()
     }
@@ -144,19 +159,28 @@ impl fmt::Display for StampedIsometry {
     }
 }
 
-/// One transform to insert into a `BufferTree` via `update`.
+/// One transform to insert into a [`BufferTree`](crate::BufferTree) via
+/// [`update`](crate::BufferTree::update).
 ///
-/// `BufferTree::update` and `BufferObserver::on_update` operate on slices of these
-/// so callers can push many transforms in a single call.
+/// [`BufferTree::update`](crate::BufferTree::update) and
+/// [`BufferObserver::on_update`](crate::BufferObserver::on_update) operate on
+/// slices of these so callers can push many transforms in a single call.
 #[derive(Clone, Debug)]
 pub struct TransformUpdate {
+    /// Parent frame (the "from" side of the edge).
     pub from: String,
+    /// Child frame (the "to" side of the edge).
     pub to: String,
+    /// The stamped pose of `to` expressed in `from`.
     pub stamped_isometry: StampedIsometry,
+    /// Whether this edge is static or part of a time series.
     pub kind: TransformType,
 }
 
 impl TransformUpdate {
+    /// Build a new `TransformUpdate`. Accepts anything that converts into a
+    /// `String` for the frame names so callers can pass `&str`, `String`, or
+    /// `Cow<str>` interchangeably.
     pub fn new(
         from: impl Into<String>,
         to: impl Into<String>,
