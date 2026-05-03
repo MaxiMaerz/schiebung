@@ -9,164 +9,230 @@ on:
 permissions:
   contents: read
 
+# Build matrix is split per package because the two have different platform
+# constraints:
+#   - schiebung-core-py: pure Rust + numpy. Builds for every target maturin
+#     supports.
+#   - schiebung-rerun-py: depends on `rerun-sdk` (Python) at runtime, which
+#     only ships wheels for linux x86_64 (glibc), macOS arm64, and windows
+#     x64. We only ship wheels where rerun-sdk also ships, otherwise
+#     `pip install schiebung-rerun` succeeds but its dep resolution fails.
+#     Cross-compiling rerun's transitive `ring` C asm to ARM also breaks
+#     under the manylinux GCC toolchain — another reason to stay narrow.
+
 jobs:
-  # Linux builds (glibc)
-  linux:
+  # =========================================================================
+  # schiebung-core-py — wide platform support
+  # =========================================================================
+
+  linux-core:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target:
-          - x86_64
-          - x86
-          - aarch64
-          - armv7
-        package:
-          - name: schiebung-core-py
-            path: core/schiebung-core-py
-          - name: schiebung-rerun-py
-            path: visualizer/schiebung-rerun-py
+        target: [x86_64, x86, aarch64, armv7]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
-      - name: Build wheels for ${{ matrix.package.name }}
+      - name: Build wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -m core/schiebung-core-py/Cargo.toml
           sccache: false
           manylinux: auto
-      - name: Build free-threaded wheels for ${{ matrix.package.name }}
+      - name: Build free-threaded wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i python3.13t -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -i python3.13t -m core/schiebung-core-py/Cargo.toml
           sccache: false
           manylinux: auto
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.target }}-${{ matrix.package.name }}
+          name: wheels-linux-${{ matrix.target }}-schiebung-core-py
           path: dist
 
-  # Linux builds (musl)
-  musllinux:
+  musllinux-core:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target:
-          - x86_64
-          - x86
-          - aarch64
-          - armv7
-        package:
-          - name: schiebung-core-py
-            path: core/schiebung-core-py
-          - name: schiebung-rerun-py
-            path: visualizer/schiebung-rerun-py
+        target: [x86_64, x86, aarch64, armv7]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
-      - name: Build wheels for ${{ matrix.package.name }}
+      - name: Build wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -m core/schiebung-core-py/Cargo.toml
           sccache: false
           manylinux: musllinux_1_2
-      - name: Build free-threaded wheels for ${{ matrix.package.name }}
+      - name: Build free-threaded wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i python3.13t -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -i python3.13t -m core/schiebung-core-py/Cargo.toml
           sccache: false
           manylinux: musllinux_1_2
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-musllinux-${{ matrix.target }}-${{ matrix.package.name }}
+          name: wheels-musllinux-${{ matrix.target }}-schiebung-core-py
           path: dist
 
-  # Windows builds
-  windows:
+  windows-core:
     runs-on: windows-latest
     strategy:
       matrix:
-        target:
-          - x64
-          - x86
-        package:
-          - name: schiebung-core-py
-            path: core/schiebung-core-py
-          - name: schiebung-rerun-py
-            path: visualizer/schiebung-rerun-py
+        target: [x64, x86]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
           architecture: ${{ matrix.target }}
-      - name: Build wheels for ${{ matrix.package.name }}
+      - name: Build wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -m core/schiebung-core-py/Cargo.toml
           sccache: false
       - uses: actions/setup-python@v5
         with:
           python-version: 3.13t
           architecture: ${{ matrix.target }}
-      - name: Build free-threaded wheels for ${{ matrix.package.name }}
+      - name: Build free-threaded wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i python3.13t -m ${{ matrix.package.path }}/Cargo.toml
+          args: --release --out dist -i python3.13t -m core/schiebung-core-py/Cargo.toml
           sccache: false
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-${{ matrix.target }}-${{ matrix.package.name }}
+          name: wheels-windows-${{ matrix.target }}-schiebung-core-py
           path: dist
 
-  # macOS builds
-  macos:
+  macos-core:
     runs-on: macos-14
-    strategy:
-      matrix:
-        target:
-          - aarch64
-        package:
-          - name: schiebung-core-py
-            path: core/schiebung-core-py
-          - name: schiebung-rerun-py
-            path: visualizer/schiebung-rerun-py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
-      - name: Build wheels for ${{ matrix.package.name }}
+      - name: Build wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -m ${{ matrix.package.path }}/Cargo.toml
+          target: aarch64
+          args: --release --out dist -m core/schiebung-core-py/Cargo.toml
           sccache: false
-      - name: Build free-threaded wheels for ${{ matrix.package.name }}
+      - name: Build free-threaded wheels for schiebung-core-py
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python3.13t -m ${{ matrix.package.path }}/Cargo.toml
+          target: aarch64
+          args: --release --out dist -i python3.13t -m core/schiebung-core-py/Cargo.toml
           sccache: false
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}-${{ matrix.package.name }}
+          name: wheels-macos-aarch64-schiebung-core-py
           path: dist
 
-  # Source distributions
+  # =========================================================================
+  # schiebung-rerun-py — only platforms where rerun-sdk also ships wheels
+  # =========================================================================
+
+  linux-rerun:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          args: --release --out dist -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+          manylinux: auto
+      - name: Build free-threaded wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          args: --release --out dist -i python3.13t -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+          manylinux: auto
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x86_64-schiebung-rerun-py
+          path: dist
+
+  windows-rerun:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: x64
+      - name: Build wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13t
+          architecture: x64
+      - name: Build free-threaded wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist -i python3.13t -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64-schiebung-rerun-py
+          path: dist
+
+  macos-rerun:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+      - name: Build free-threaded wheels for schiebung-rerun-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist -i python3.13t -m visualizer/schiebung-rerun-py/Cargo.toml
+          sccache: false
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-aarch64-schiebung-rerun-py
+          path: dist
+
+  # =========================================================================
+  # Source distributions (one per package)
+  # =========================================================================
+
   sdist:
     runs-on: ubuntu-latest
     strategy:
@@ -189,7 +255,10 @@ jobs:
           name: wheels-sdist-${{ matrix.package.name }}
           path: dist
 
-  # Version validation
+  # =========================================================================
+  # Version validation + PyPI release
+  # =========================================================================
+
   validate-version:
     name: Validate Tag Version
     runs-on: ubuntu-latest
@@ -219,12 +288,20 @@ jobs:
           fi
           echo "Version validation passed: $WS_VERSION"
 
-  # PyPI release
   release:
     name: Release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux, musllinux, windows, macos, sdist, validate-version]
+    needs:
+      - linux-core
+      - musllinux-core
+      - windows-core
+      - macos-core
+      - linux-rerun
+      - windows-rerun
+      - macos-rerun
+      - sdist
+      - validate-version
     permissions:
       id-token: write
       contents: write
