@@ -233,6 +233,7 @@ jobs:
           subject-path: 'wheels-*/*'
       - name: Install uv
         run: pip install uv
-      - name: Publish to PyPI
-        run: |
-          uv publish wheels-*/*
+      - name: Publish schiebung to PyPI
+        run: uv publish wheels-*-schiebung-core-py/*
+      - name: Publish schiebung-rerun to PyPI
+        run: uv publish wheels-*-schiebung-rerun-py/*
