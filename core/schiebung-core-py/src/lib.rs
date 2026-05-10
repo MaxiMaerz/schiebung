@@ -422,18 +422,41 @@ impl BufferTree {
         }
     }
 
-    /// Insert one or more transforms into the buffer.
+    /// Insert a single transform into the buffer.
     ///
-    /// `updates` is a list of `(from, to, stamped_isometry, kind)` tuples. Pass
-    /// a single-element list to insert one transform; pass many to insert them
-    /// in a single bulk call. Observers (e.g. the rerun visualizer) are
-    /// notified once per call with the full batch, which lets columnar
-    /// observers send their data in one shot.
+    /// For inserting many transforms in one shot — and notifying observers
+    /// (e.g. the rerun visualizer) once per batch so columnar observers can
+    /// send their data in a single call — use [`update_batch`] instead.
+    pub fn update(
+        &mut self,
+        from: String,
+        to: String,
+        stamped_isometry: StampedIsometry,
+        kind: TransformType,
+    ) -> PyResult<()> {
+        let core_iso = CoreStampedIsometry::new(
+            stamped_isometry.translation(),
+            stamped_isometry.rotation(),
+            stamped_isometry.stamp(),
+        );
+        let core_update = CoreTransformUpdate::new(from, to, core_iso, kind.into());
+
+        self.inner
+            .update(&[core_update])
+            .map_err(core_err_to_pyerr)?;
+        Ok(())
+    }
+
+    /// Insert many transforms into the buffer in a single bulk call.
+    ///
+    /// `updates` is a list of `(from, to, stamped_isometry, kind)` tuples.
+    /// Observers are notified once per call with the full batch, which lets
+    /// columnar observers send their data in one shot.
     ///
     /// The call is fail-fast: if any tuple is rejected (cycle / multiple
     /// parents), the call returns an error and earlier tuples in the list
     /// remain applied.
-    pub fn update(
+    pub fn update_batch(
         &mut self,
         updates: Vec<(String, String, StampedIsometry, TransformType)>,
     ) -> PyResult<()> {
@@ -513,7 +536,8 @@ impl BufferTree {
 
     /// Register a Python callable as an observer.
     ///
-    /// The callable will be invoked once per transform inserted via `update`.
+    /// The callable will be invoked once per transform inserted via `update`
+    /// or `update_batch`.
     /// The callable signature should be: callback(from: str, to: str, transform: StampedIsometry, kind: TransformType) -> None
     ///
     /// When registered, the observer will immediately receive callbacks for all existing transforms in the buffer.
