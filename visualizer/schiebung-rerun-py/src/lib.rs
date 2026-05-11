@@ -8,10 +8,17 @@
 //! `TfError`, `UrdfLoader`) are **re-exported from the `schiebung` package** —
 //! `schiebung_rerun.StampedIsometry is schiebung.StampedIsometry`, so values
 //! move freely between the two packages.
+//!
+//! Both constructors accept an optional `batcher_config` — a
+//! `rerun.ChunkBatcherConfig` (incl. its `DEFAULT` / `LOW_LATENCY` / `ALWAYS` /
+//! `NEVER` presets) — applied to the recording stream's chunk batcher.
+
+use std::time::Duration;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rerun::log::ChunkBatcherConfig;
 use rerun::{RecordingStream, RecordingStreamBuilder};
 
 use schiebung::{
@@ -20,6 +27,38 @@ use schiebung::{
 };
 use schiebung_rerun::RerunObserver as CoreRerunObserver;
 
+/// Read a `rerun.ChunkBatcherConfig` (rerun-sdk's own pyclass, with its
+/// `DEFAULT` / `LOW_LATENCY` / `ALWAYS` / `NEVER` presets) duck-typed into the
+/// Rust [`ChunkBatcherConfig`] — we don't link the rerun extension module, so we
+/// just call its accessors.
+///
+/// Starts from the Rust default and overrides the four fields rerun's Python
+/// object exposes; `max_bytes_in_flight` (not exposed there) keeps its default.
+fn batcher_config_from_py(obj: &Bound<'_, PyAny>) -> PyResult<ChunkBatcherConfig> {
+    let mut config = ChunkBatcherConfig::default();
+
+    // `flush_tick` is a `datetime.timedelta`; go via `total_seconds()` so we
+    // don't depend on pyo3's timedelta conversion. The ALWAYS/NEVER presets set
+    // `flush_tick = Duration::MAX`, which rerun's Python side can't even render
+    // as a `timedelta` (it raises) — so on *any* failure here we fall back to
+    // `Duration::MAX`, i.e. "effectively never tick", which preserves the intent
+    // of those presets (and for ALWAYS the other thresholds force the flush
+    // anyway). If the object isn't a batcher config at all, the missing
+    // `flush_num_*` attrs below will surface a clear `AttributeError`.
+    match obj
+        .getattr("flush_tick")
+        .and_then(|t| t.call_method0("total_seconds")?.extract::<f64>())
+    {
+        Ok(secs) => config.flush_tick = Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX),
+        Err(_) => config.flush_tick = Duration::MAX,
+    }
+    config.flush_num_bytes = obj.getattr("flush_num_bytes")?.extract()?;
+    config.flush_num_rows = obj.getattr("flush_num_rows")?.extract()?;
+    config.chunk_max_rows_if_unsorted = obj.getattr("chunk_max_rows_if_unsorted")?.extract()?;
+
+    Ok(config)
+}
+
 /// Build a Rerun [`RecordingStream`] honoring the `spawn` / `connect_addr` knobs:
 ///
 /// * `connect_addr` set                       → connect to that gRPC endpoint
@@ -27,13 +66,19 @@ use schiebung_rerun::RerunObserver as CoreRerunObserver;
 /// * `connect_addr` `None`, `spawn` `true`    → spawn a viewer (the default).
 /// * `connect_addr` `None`, `spawn` `false`   → connect to a viewer already
 ///   running on the default gRPC port.
+///
+/// `batcher_config`, if given, is applied via [`RecordingStreamBuilder::batcher_config`].
 fn build_recording_stream(
     application_id: String,
     recording_id: String,
     spawn: bool,
     connect_addr: Option<String>,
+    batcher_config: Option<ChunkBatcherConfig>,
 ) -> PyResult<RecordingStream> {
-    let builder = RecordingStreamBuilder::new(application_id).recording_id(recording_id);
+    let mut builder = RecordingStreamBuilder::new(application_id).recording_id(recording_id);
+    if let Some(cfg) = batcher_config {
+        builder = builder.batcher_config(cfg);
+    }
     match connect_addr {
         Some(addr) => {
             let label = addr.clone();
@@ -104,8 +149,13 @@ impl RerunObserver {
     ///         default gRPC port.
     ///     connect_addr: If given, connect to this Rerun gRPC endpoint
     ///         (e.g. "rerun+http://127.0.0.1:9876/proxy"); overrides `spawn`.
+    ///     batcher_config: Optional `rerun.ChunkBatcherConfig` (e.g.
+    ///         `rr.ChunkBatcherConfig.LOW_LATENCY()`) controlling the recording
+    ///         stream's batch-flush thresholds. The `RERUN_FLUSH_TICK_SECS` /
+    ///         `RERUN_FLUSH_NUM_BYTES` / `RERUN_FLUSH_NUM_ROWS` /
+    ///         `RERUN_CHUNK_MAX_ROWS_IF_UNSORTED` env vars still override it.
     #[new]
-    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None))]
+    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None))]
     pub fn new(
         application_id: String,
         recording_id: String,
@@ -113,8 +163,18 @@ impl RerunObserver {
         publish_static_transforms: bool,
         spawn: bool,
         connect_addr: Option<String>,
+        batcher_config: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let rec = build_recording_stream(application_id, recording_id, spawn, connect_addr)?;
+        let batcher_config = batcher_config
+            .map(|c| batcher_config_from_py(&c))
+            .transpose()?;
+        let rec = build_recording_stream(
+            application_id,
+            recording_id,
+            spawn,
+            connect_addr,
+            batcher_config,
+        )?;
         Ok(RerunObserver {
             inner: CoreRerunObserver::new(rec, publish_static_transforms, timeline),
         })
@@ -168,9 +228,9 @@ impl RerunBufferTree {
     /// Create a `RerunBufferTree`.
     ///
     /// Takes the same arguments as [`RerunObserver`]; see there for the meaning
-    /// of `spawn` / `connect_addr`.
+    /// of `spawn` / `connect_addr` / `batcher_config`.
     #[new]
-    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None))]
+    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None))]
     pub fn new(
         py: Python<'_>,
         application_id: String,
@@ -179,6 +239,7 @@ impl RerunBufferTree {
         publish_static_transforms: bool,
         spawn: bool,
         connect_addr: Option<String>,
+        batcher_config: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let observer = Py::new(
             py,
@@ -189,6 +250,7 @@ impl RerunBufferTree {
                 publish_static_transforms,
                 spawn,
                 connect_addr,
+                batcher_config,
             )?,
         )?;
         let buffer = py.import("schiebung")?.getattr("BufferTree")?.call0()?;

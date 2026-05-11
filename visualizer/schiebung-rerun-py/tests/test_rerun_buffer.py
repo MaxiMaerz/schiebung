@@ -2,7 +2,17 @@
 import os
 
 import pytest
-from schiebung_rerun import RerunBufferTree, StampedIsometry, TransformType, TfError, UrdfLoader
+import rerun as rr
+
+import schiebung
+from schiebung_rerun import (
+    RerunBufferTree,
+    RerunObserver,
+    StampedIsometry,
+    TransformType,
+    TfError,
+    UrdfLoader,
+)
 
 # A well-formed gRPC URL that nothing is listening on: the sink connects lazily
 # and drops data, so RerunBufferTree can be exercised without a viewer.
@@ -65,6 +75,51 @@ def test_rerun_buffer_tree_dynamic_interpolation():
     # Lookup at t=5s (5_000_000_000 ns) should give [5.0, 0.0, 0.0]
     result = tree.buffer.lookup_transform("odom", "base_link", 5_000_000_000)
     assert result.translation() == [5.0, 0.0, 0.0]
+
+
+def _roundtrip(tree):
+    """Push one transform through `tree.buffer` and read it back."""
+    tree.buffer.update(
+        "world", "robot",
+        StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+        TransformType.Static,
+    )
+    assert tree.buffer.lookup_latest_transform("world", "robot").translation() == [1.0, 0.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        None,
+        rr.ChunkBatcherConfig.LOW_LATENCY(),                       # non-trivial flush_tick (8ms)
+        rr.ChunkBatcherConfig.ALWAYS(),                            # flush_tick == Duration::MAX path
+        rr.ChunkBatcherConfig(flush_num_rows=1, flush_num_bytes=1),
+    ],
+)
+def test_batcher_config_accepted(cfg):
+    """RerunBufferTree accepts a rerun.ChunkBatcherConfig (incl. presets) and still works."""
+    tree = RerunBufferTree("schiebung", "batcher", "stable_time", True,
+                           connect_addr=DEAD_ADDR, batcher_config=cfg)
+    _roundtrip(tree)
+
+
+def test_batcher_config_on_observer():
+    """RerunObserver also accepts batcher_config."""
+    buf = schiebung.BufferTree()
+    buf.register_observer(RerunObserver("schiebung", "batcher", "stable_time", True,
+                                        connect_addr=DEAD_ADDR,
+                                        batcher_config=rr.ChunkBatcherConfig.LOW_LATENCY()))
+    buf.update("world", "robot",
+               StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+               TransformType.Static)
+    assert buf.lookup_latest_transform("world", "robot").translation() == [1.0, 0.0, 0.0]
+
+
+def test_batcher_config_rejects_non_config():
+    """Passing something that isn't a batcher config raises a clear error."""
+    with pytest.raises((AttributeError, TypeError)):
+        RerunBufferTree("schiebung", "batcher", "stable_time", True,
+                        connect_addr=DEAD_ADDR, batcher_config=object())
 
 
 @pytest.mark.skipif(os.environ.get("RERUN_TEST") != "1",
