@@ -22,7 +22,7 @@ def test_python_observer_callback():
 
     # Add a transform - observer should be called
     t = StampedIsometry([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 0.0)
-    buf.update([("world", "robot", t, TransformType.Static)])
+    buf.update("world", "robot", t, TransformType.Static)
 
     # Verify observer was called
     assert len(calls) == 1
@@ -39,7 +39,7 @@ def test_observer_receives_existing_transforms():
     # Add some transforms before registering observer
     t1 = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
     t2 = StampedIsometry([0.0, 2.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1.0)
-    buf.update([
+    buf.update_batch([
         ("world", "link1", t1, TransformType.Static),
         ("link1", "link2", t2, TransformType.Dynamic),
     ])
@@ -79,7 +79,7 @@ def test_multiple_observers():
 
     # Add a transform
     t = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
-    buf.update([("a", "b", t, TransformType.Static)])
+    buf.update("a", "b", t, TransformType.Static)
 
     # Both observers should have been called
     assert len(calls1) == 1
@@ -113,7 +113,7 @@ def test_observer_with_class_method():
     buf.register_observer(obs)
 
     t = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
-    buf.update([("x", "y", t, TransformType.Dynamic)])
+    buf.update("x", "y", t, TransformType.Dynamic)
 
     assert len(obs.calls) == 1
     assert obs.calls[0] == ("x", "y")
@@ -132,4 +132,4 @@ def test_observer_exception_handling():
     # Adding a transform should not crash even though observer raises
     t = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
     # This should complete successfully
-    buf.update([("a", "b", t, TransformType.Static)])
+    buf.update("a", "b", t, TransformType.Static)

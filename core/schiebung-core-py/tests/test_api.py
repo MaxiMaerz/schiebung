@@ -28,7 +28,7 @@ def test_simple_lookup():
     t = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
 
     # Add a static transform from map to odom
-    buf.update([("map", "odom", t, TransformType.Static)])
+    buf.update("map", "odom", t, TransformType.Static)
 
     # Lookup latest
     res = buf.lookup_latest_transform("map", "odom")
@@ -43,7 +43,7 @@ def test_dynamic_lookup_interpolation():
     t1 = StampedIsometry([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
     t2 = StampedIsometry([10.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 10.0)
 
-    buf.update([
+    buf.update_batch([
         ("odom", "base_link", t1, TransformType.Dynamic),
         ("odom", "base_link", t2, TransformType.Dynamic),
     ])
@@ -61,7 +61,7 @@ def test_lookup_exceptions():
 
     # Case 2: Graph disconnected
     t = StampedIsometry([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
-    buf.update([("A", "B", t, TransformType.Static)])
+    buf.update("A", "B", t, TransformType.Static)
     # Just lookup A->C
     with pytest.raises(ValueError, match="CouldNotFindTransform"):
          buf.lookup_transform("A", "C", 0.0)
@@ -70,7 +70,7 @@ def test_future_past_exceptions():
     buf = BufferTree()
     t1 = StampedIsometry([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 10.0)
     t2 = StampedIsometry([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 20.0)
-    buf.update([
+    buf.update_batch([
         ("A", "B", t1, TransformType.Dynamic),
         ("A", "B", t2, TransformType.Dynamic),
     ])
@@ -86,11 +86,11 @@ def test_cycle_detection():
     buf = BufferTree()
     t = StampedIsometry([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0.0)
 
-    buf.update([("A", "B", t, TransformType.Static)])
-    buf.update([("B", "C", t, TransformType.Static)])
+    buf.update("A", "B", t, TransformType.Static)
+    buf.update("B", "C", t, TransformType.Static)
 
     with pytest.raises(ValueError, match="InvalidGraph"):
-         buf.update([("C", "A", t, TransformType.Static)])
+         buf.update("C", "A", t, TransformType.Static)
 
 def test_urdf_loader_creation():
     """Test that UrdfLoader can be instantiated"""

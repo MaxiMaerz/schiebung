@@ -39,9 +39,11 @@ impl RerunBufferTree {
     /// Example:
     ///     >>> from schiebung_rerun import RerunBufferTree, StampedIsometry, TransformType
     ///     >>> tree = RerunBufferTree("schiebung", "session_001", "stable_time", True)
-    ///     >>> # Access the buffer to add transforms (pass a list of updates)
+    ///     >>> # Access the buffer to add a single transform...
     ///     >>> t = StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0)
-    ///     >>> tree.buffer.update([("world", "robot", t, TransformType.Static)])
+    ///     >>> tree.buffer.update("world", "robot", t, TransformType.Static)
+    ///     >>> # ...or many at once via update_batch
+    ///     >>> tree.buffer.update_batch([("world", "robot", t, TransformType.Static)])
     #[new]
     pub fn new(
         py: Python<'_>,
@@ -79,7 +81,7 @@ impl RerunBufferTree {
     /// Example:
     ///     >>> tree = RerunBufferTree("my_recording", "stable_time", True)
     ///     >>> buffer = tree.buffer
-    ///     >>> buffer.update([("world", "robot", transform, TransformType.Static)])
+    ///     >>> buffer.update("world", "robot", transform, TransformType.Static)
     ///     >>> result = buffer.lookup_latest_transform("world", "robot")
     #[getter]
     pub fn buffer(&self, py: Python<'_>) -> Py<BufferTree> {
