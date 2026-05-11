@@ -17,7 +17,7 @@ members = [
 # Bumping releases is one edit here (plus the matching version below for
 # the inter-crate path-dep pins).
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 
 # Centralized declaration for path deps that ALSO need a published version
 # pin (cargo publish requires `version = "..."` on path deps). Member crates
@@ -25,4 +25,4 @@ version = "0.3.0"
 # `[workspace.package].version` above. Internal-only path deps don't go
 # here — they stay as plain `{ path = "..." }`.
 [workspace.dependencies]
-schiebung = { path = "core/schiebung-core-rs", version = "0.3.0" }
+schiebung = { path = "core/schiebung-core-rs", version = "0.4.0" }
