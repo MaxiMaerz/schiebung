@@ -48,6 +48,9 @@ jobs:
             path: server/schiebung-server-py
           - name: schiebung-rerun-py
             path: visualizer/schiebung-rerun-py
+            # Built and installed alongside this package so its `schiebung`
+            # dependency resolves to the sibling source, not the PyPI release.
+            dep_path: core/schiebung-core-py
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -56,6 +59,14 @@ jobs:
           python-version: '3.12'
       - name: Install Cap'n Proto
         run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Build dependency package
+        if: ${{ matrix.package.dep_path }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m ${{ matrix.package.dep_path }}/Cargo.toml
+          sccache: true
+          container: 'off'
       - name: Build ${{ matrix.package.name }}
         uses: PyO3/maturin-action@v1
         with:
@@ -67,6 +78,8 @@ jobs:
         working-directory: ${{ matrix.package.path }}
         run: |
           pip install pytest
+          # Installs every wheel built above (the package plus any sibling deps),
+          # so inter-package dependencies resolve locally instead of from PyPI.
           pip install ../../target/wheels/*.whl
           # Skip pytest when the package has no tests directory; otherwise
           # let pytest's exit code propagate so real failures fail CI.

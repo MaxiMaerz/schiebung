@@ -13,9 +13,8 @@ categories = ["science::robotics"]
 [dependencies]
 schiebung = { path = "../../core/schiebung-core-rs" }
 schiebung-rerun = { path = "../schiebung-rerun-rs" }
-schiebung-py = { path = "../../core/schiebung-core-py" }
 pyo3 = { version = ">=0.26.0", features = ["abi3-py312"] }
-rerun = "0.28.1"
+rerun = "0.31.4"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

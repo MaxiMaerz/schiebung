@@ -18,7 +18,11 @@ keywords = ["robotics", "transform", "visualization", "rerun"]
 
 dependencies = [
     "numpy>=1.20",
-    "rerun-sdk>=0.28.1",
+    "rerun-sdk>=0.31.4",
+    # The core bindings: schiebung_rerun re-exports StampedIsometry / BufferTree /
+    # TransformType / TfError / UrdfLoader from this package so the two share the
+    # exact same Python types. Kept in lockstep with this package's version.
+    "schiebung==0.3.0",
 ]
 
 [project.urls]
@@ -34,5 +38,5 @@ bindings = "pyo3"
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
-    "rerun-sdk>=0.28.1",
+    "rerun-sdk>=0.31.4",
 ]

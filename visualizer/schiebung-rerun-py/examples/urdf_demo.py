@@ -91,24 +91,24 @@ def main():
 
     print(f"Loading URDF from {urdf_path}")
 
-    # Create a RerunBufferTree with Rerun visualization
-    # Args: application_id, recording_id, timeline, publish_static_transforms
-    # Setting publish_static_transforms=False since Rerun's URDF loader handles those
+    # Spawn a single Rerun viewer (via the rerun SDK); the buffer tree connects to it.
+    rec = rr.RecordingStream(application_id="urdf_demo", recording_id="urdf_demo_session")
+    rec.spawn()
+    rec.log_file_from_path(str(urdf_path), static=True)
+
+    # Create a RerunBufferTree connected to that viewer.
+    # publish_static_transforms=False since Rerun's URDF loader handles those.
     tree = RerunBufferTree(
         "urdf_demo",           # application_id
         "urdf_demo_session",   # recording_id
         "stable_time",         # timeline
         False,                 # publish_static_transforms
+        spawn=False,           # connect to the viewer spawned above
     )
 
     # Load URDF into the buffer
     loader = UrdfLoader()
     loader.load_into_buffer(str(urdf_path), tree.buffer)
-
-    rec = rr.RecordingStream(application_id="urdf_demo", recording_id="urdf_demo_session")
-    rec.serve_grpc()
-    rec.spawn()
-    rec.log_file_from_path(str(urdf_path), static=True)
 
     # Define all dynamic (revolute) joints from the URDF with their initial transforms
     # Each entry: (parent_link, child_link, xyz, rpy)

@@ -22,21 +22,18 @@ from schiebung_rerun import (
 
 
 def main():
-    # Create a RerunBufferTree with Rerun visualization
+    # Spawn a single Rerun viewer (via the rerun SDK) and let the buffer tree
+    # connect to it instead of spawning its own.
+    rec = rr.RecordingStream(application_id="sun_earth_moon", recording_id="demo_id")
+    rec.spawn()
+
     tree = RerunBufferTree(
         "sun_earth_moon",       # application_id
         "demo_id",              # recording_id
         "stable_time",          # timeline
         True,                   # publish_static_transforms
+        spawn=False,            # connect to the viewer spawned above
     )
-
-    # Get the recording stream to log visual elements
-    rec = rr.RecordingStream(
-        application_id="sun_earth_moon",
-        recording_id="demo_id"
-    )
-    rec.serve_grpc()
-    rec.spawn()
 
     # Log the Sun
     rec.log(
