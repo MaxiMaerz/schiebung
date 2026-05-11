@@ -29,5 +29,5 @@ bindings = "pyo3"
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
-    "rerun-sdk>=0.28.1",
+    "rerun-sdk>=0.31.4",
 ]

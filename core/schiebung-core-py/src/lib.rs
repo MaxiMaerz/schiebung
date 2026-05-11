@@ -382,22 +382,48 @@ impl PyBufferObserver {
 
 impl CoreBufferObserver for PyBufferObserver {
     fn on_update(&self, updates: &[CoreTransformUpdate]) {
-        // Acquire the GIL once for the whole batch and call the Python
-        // callback per item, preserving the per-transform user-facing API.
+        // Acquire the GIL once for the whole batch.
         Python::attach(|py| {
+            let callback = self.callback.bind(py);
+
+            // Batch protocol: if the observer exposes `on_update_batch`, hand it
+            // the whole batch in one call as a list of
+            // `(from, to, StampedIsometry, TransformType)` tuples. This lets
+            // columnar observers (e.g. the Rerun logger) send their data in a
+            // single shot instead of one row at a time.
+            if let Ok(batch_cb) = callback.getattr("on_update_batch") {
+                let items: Vec<(String, String, StampedIsometry, TransformType)> = updates
+                    .iter()
+                    .map(|u| {
+                        (
+                            u.from.clone(),
+                            u.to.clone(),
+                            StampedIsometry::from(u.stamped_isometry.clone()),
+                            TransformType::from(u.kind),
+                        )
+                    })
+                    .collect();
+                if let Err(e) = batch_cb.call1((items,)) {
+                    eprintln!(
+                        "Error calling Python observer callback (on_update_batch): {}",
+                        e
+                    );
+                    e.print(py);
+                }
+                return;
+            }
+
+            // Otherwise call the plain callable once per transform.
             for update in updates {
                 let py_transform = StampedIsometry::from(update.stamped_isometry.clone());
                 let py_kind = TransformType::from(update.kind);
 
-                if let Err(e) = self.callback.call1(
-                    py,
-                    (
-                        update.from.clone(),
-                        update.to.clone(),
-                        py_transform,
-                        py_kind,
-                    ),
-                ) {
+                if let Err(e) = callback.call1((
+                    update.from.clone(),
+                    update.to.clone(),
+                    py_transform,
+                    py_kind,
+                )) {
                     eprintln!("Error calling Python observer callback: {}", e);
                     e.print(py);
                 }
@@ -534,16 +560,25 @@ impl BufferTree {
             .map_err(|e| PyValueError::new_err(format!("Failed to save visualization: {}", e)))
     }
 
-    /// Register a Python callable as an observer.
+    /// Register a Python observer.
     ///
-    /// The callable will be invoked once per transform inserted via `update`
-    /// or `update_batch`.
-    /// The callable signature should be: callback(from: str, to: str, transform: StampedIsometry, kind: TransformType) -> None
+    /// The observer is notified whenever transforms are inserted via `update`
+    /// or `update_batch`, and immediately receives the transforms already in
+    /// the buffer at registration time.
     ///
-    /// When registered, the observer will immediately receive callbacks for all existing transforms in the buffer.
+    /// Two protocols are supported:
+    ///
+    /// * **Batch** — if the object has an `on_update_batch` attribute, it is
+    ///   called once per insertion batch with a list of
+    ///   `(from: str, to: str, transform: StampedIsometry, kind: TransformType)`
+    ///   tuples. Use this for columnar consumers (e.g. the Rerun logger) that
+    ///   benefit from seeing a whole batch at once.
+    /// * **Per-transform** — otherwise the object is treated as a plain
+    ///   callable invoked once per transform:
+    ///   `callback(from: str, to: str, transform: StampedIsometry, kind: TransformType) -> None`
     ///
     /// # Arguments
-    /// * `callback` - A Python callable that will be called on each transform update
+    /// * `callback` - A callable, or an object exposing `on_update_batch`
     ///
     /// # Example
     /// ```python
@@ -554,10 +589,11 @@ impl BufferTree {
     /// buffer.register_observer(my_observer)
     /// ```
     pub fn register_observer(&mut self, py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
-        // Verify the callback is callable
-        if !callback.bind(py).is_callable() {
+        // Accept either a plain callable or an object exposing `on_update_batch`.
+        let bound = callback.bind(py);
+        if !bound.is_callable() && !bound.hasattr("on_update_batch")? {
             return Err(PyValueError::new_err(
-                "Observer must be a callable (function or callable object)",
+                "Observer must be a callable or expose an `on_update_batch` method",
             ));
         }
 

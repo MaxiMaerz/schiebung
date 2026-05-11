@@ -17,6 +17,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 schiebung.workspace = true
-rerun = "0.28.1"
+rerun = "0.31.4"
 nalgebra = "0.33.2"
 log = "0.4"
