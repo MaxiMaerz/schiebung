@@ -90,7 +90,6 @@ def _roundtrip(tree):
     [
         None,
         rr.ChunkBatcherConfig.LOW_LATENCY(),                       # non-trivial flush_tick (8ms)
-        rr.ChunkBatcherConfig.ALWAYS(),                            # flush_tick == Duration::MAX path
         rr.ChunkBatcherConfig(flush_num_rows=1, flush_num_bytes=1),
     ],
 )

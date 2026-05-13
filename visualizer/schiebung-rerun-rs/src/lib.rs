@@ -17,10 +17,9 @@ const STATIC_ENTITY_PATH: &str = "tf_static";
 /// Observer that logs transforms to a Rerun recording stream.
 ///
 /// Every `on_update` call from the buffer turns into at most two
-/// `send_columns` calls: one columnar batch of all dynamic rows under
-/// [`DYNAMIC_ENTITY_PATH`] (`"tf"`) on the configured timeline, and one
-/// batch of all static rows under [`STATIC_ENTITY_PATH`] (`"tf_static"`)
-/// with no time index. The parent/child relationship
+/// `send_columns` calls: one columnar batch of all dynamic rows under the
+/// `tf` entity on the configured timeline, and one batch of all static rows
+/// under the `tf_static` entity with no time index. The parent/child relationship
 /// of each edge is carried in the `parent_frame` / `child_frame` data columns
 /// of rerun's `Transform3D` archetype (named frames) rather than in the
 /// entity-path string, so collapsing to two fixed paths does not change the
