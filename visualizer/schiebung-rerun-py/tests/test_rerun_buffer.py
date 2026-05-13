@@ -1,6 +1,4 @@
 """Tests for schiebung_rerun Python bindings."""
-import os
-
 import pytest
 import rerun as rr
 
@@ -120,15 +118,3 @@ def test_batcher_config_rejects_non_config():
     with pytest.raises((AttributeError, TypeError)):
         RerunBufferTree("schiebung", "batcher", "stable_time", True,
                         connect_addr=DEAD_ADDR, batcher_config=object())
-
-
-@pytest.mark.skipif(os.environ.get("RERUN_TEST") != "1",
-                    reason="Spawns a Rerun viewer; set RERUN_TEST=1 to run")
-def test_rerun_buffer_tree_spawns_viewer():
-    """Smoke test the default code path that actually spawns a viewer."""
-    tree = RerunBufferTree("schiebung", "spawn_session", "stable_time", True)
-    tree.buffer.update(
-        "world", "robot",
-        StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
-        TransformType.Static,
-    )

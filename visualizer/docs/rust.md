@@ -8,12 +8,13 @@ Rust library for visualizing Schiebung transforms using [Rerun](https://rerun.io
 
 This crate provides a `RerunObserver` that can be attached to a `BufferTree` to automatically log all transform updates to Rerun for visualization.
 
-Currently the logging of Transforms is rather simple:
+Transform logging is intentionally minimal and tuned for Rerun's batcher:
 
-* from is the parent frame
-* to is the child frame
-* All is under a flat namespace /transforms/{from}->{to}
-* We use the provided timeline to set the timestamp for each transform
+* Every buffer batch becomes at most two `send_columns` calls — one for dynamic transforms under the `tf` entity, one for static transforms under `tf_static` (matching the ROS / Rerun 0.32+ convention).
+* The parent/child relationship of each edge is carried in the `parent_frame` / `child_frame` data columns of Rerun's `Transform3D` archetype (named frames), not in the entity-path string, so the 3D viewer still builds the full transform graph from the collapsed paths.
+* Dynamic rows land on the user-supplied timeline at their original per-row stamps. Static rows are sent with no time index (Rerun-static semantics); the observer keeps an internal snapshot of every static frame ever seen and re-sends the full set on each static-touching update so deltas never wipe earlier statics from the collapsed entity.
+
+Trade-off vs. the older `transforms/{from}->{to}` layout: the entity panel no longer breaks transforms out per edge, but the 3D positioning is unchanged.
 
 ## Example
 
