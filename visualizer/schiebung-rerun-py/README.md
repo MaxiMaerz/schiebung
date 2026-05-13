@@ -33,6 +33,22 @@ re-exported from the [`schiebung`](https://pypi.org/project/schiebung/) package 
 they are the *same* types, so values pass freely between the two packages
 (`schiebung_rerun.StampedIsometry is schiebung.StampedIsometry`).
 
+### Tuning the recording stream
+
+`RerunBufferTree` / `RerunObserver` take an optional `batcher_config` — a
+[`rerun.ChunkBatcherConfig`](https://ref.rerun.io/docs/python/stable/common/initialization_functions/#rerun.ChunkBatcherConfig)
+(including its `DEFAULT` / `LOW_LATENCY` / `ALWAYS` / `NEVER` presets) controlling
+the chunk-batcher flush thresholds:
+
+```python
+import rerun as rr
+tree = RerunBufferTree("my_app", "recording_1", "stable_time", True,
+                       batcher_config=rr.ChunkBatcherConfig.LOW_LATENCY())
+```
+
+The `RERUN_FLUSH_TICK_SECS` / `RERUN_FLUSH_NUM_BYTES` / `RERUN_FLUSH_NUM_ROWS` /
+`RERUN_CHUNK_MAX_ROWS_IF_UNSORTED` environment variables still override it.
+
 ## Documentation
 
 Full documentation: [https://maximaerz.github.io/schiebung/](https://maximaerz.github.io/schiebung/) ·

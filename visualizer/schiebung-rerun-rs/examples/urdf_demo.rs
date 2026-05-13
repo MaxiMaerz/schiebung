@@ -1,8 +1,6 @@
 use nalgebra::UnitQuaternion;
 use rerun::RecordingStreamBuilder;
-use schiebung::{
-    BufferTree, FormatLoader, StampedIsometry, TransformType, TransformUpdate, UrdfLoader,
-};
+use schiebung::{BufferTree, StampedIsometry, TransformType, TransformUpdate};
 use schiebung_rerun::RerunObserver;
 use std::env;
 use std::path::PathBuf;
@@ -22,35 +20,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut buffer = BufferTree::new();
 
-    let loader = UrdfLoader::new();
-    loader.load_into_buffer(urdf_path.to_str().unwrap(), &mut buffer)?;
-
-    let observer = RerunObserver::new(rec.clone(), false, "stable_time".to_string());
+    // publish_static_transforms = true so the cube static below is logged
+    // through the observer on `tf_static`. The URDF's own fixed joints are
+    // NOT loaded into the buffer (no `UrdfLoader::load_into_buffer` call)
+    // because `rec.log_file_from_path` already populates rerun's transform
+    // tree for them; routing them through the observer too would double-log.
+    let observer = RerunObserver::new(rec.clone(), true, "stable_time".to_string());
     buffer.register_observer(Box::new(observer));
 
     rec.log_file_from_path(urdf_path.to_str().unwrap(), None, true)?;
 
     // Place a small static cube in the robot's workspace so we can visualize
-    // the distance from the wrist tip to it as the arm moves. Insert the
-    // transform into the buffer so we can query it, and log the visual +
-    // transform directly to rerun (the observer skips static transforms here
-    // because the URDF loader has already populated rerun's transform tree).
+    // the distance from the wrist tip to it as the arm moves. Inserting it as
+    // Static into the buffer makes the observer publish `base_link ->
+    // target_cube` on the collapsed `tf_static` entity (named-frames graph),
+    // registering `target_cube` as a frame at this pose. The box visual below
+    // opts into that frame via `with_parent_frame`.
     let cube_pose = StampedIsometry::from_secs([0.6, 0.4, 1.0], [0.0, 0.0, 0.0, 1.0], 0.0);
     buffer.update(&[TransformUpdate::new(
         "base_link",
         "target_cube",
-        cube_pose.clone(),
+        cube_pose,
         TransformType::Static,
     )])?;
 
     rec.log_static(
         "target_cube",
         &[
-            &rerun::Transform3D::from_translation(cube_pose.translation().map(|v| v as f32))
-                .with_quaternion(rerun::Quaternion::from_xyzw(
-                    cube_pose.rotation().map(|v| v as f32),
-                ))
-                .with_parent_frame("base_link".to_string()) as &dyn rerun::AsComponents,
+            &rerun::Transform3D::default().with_parent_frame("target_cube".to_string())
+                as &dyn rerun::AsComponents,
             &rerun::Boxes3D::from_half_sizes([[0.05, 0.05, 0.05]])
                 .with_colors([rerun::Color::from_rgb(220, 60, 60)])
                 .with_fill_mode(rerun::FillMode::Solid),

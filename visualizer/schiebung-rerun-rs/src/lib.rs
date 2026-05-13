@@ -2,17 +2,36 @@
 #![warn(missing_docs)]
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use rerun::{RecordingStream, TimeColumn};
 use schiebung::{BufferObserver, TransformType, TransformUpdate};
 
+/// Entity path that carries every dynamic transform. Matches ROS / rerun
+/// 0.32+ convention.
+const DYNAMIC_ENTITY_PATH: &str = "tf";
+/// Entity path that carries every static transform. Matches ROS / rerun
+/// 0.32+ convention.
+const STATIC_ENTITY_PATH: &str = "tf_static";
+
 /// Observer that logs transforms to a Rerun recording stream.
 ///
-/// Each `on_update` call from the buffer becomes one or more `send_columns`
-/// calls into rerun — one per distinct entity path in the batch — using
-/// rerun's columnar bulk-write API. Static and dynamic transforms live on
-/// separate entity-path namespaces (`static_transforms/{to}` and
-/// `transforms/{from}->{to}`) so they never end up in the same group.
+/// Every `on_update` call from the buffer turns into at most two
+/// `send_columns` calls: one columnar batch of all dynamic rows under
+/// [`DYNAMIC_ENTITY_PATH`] (`"tf"`) on the configured timeline, and one
+/// batch of all static rows under [`STATIC_ENTITY_PATH`] (`"tf_static"`)
+/// with no time index. The parent/child relationship
+/// of each edge is carried in the `parent_frame` / `child_frame` data columns
+/// of rerun's `Transform3D` archetype (named frames) rather than in the
+/// entity-path string, so collapsing to two fixed paths does not change the
+/// transform graph rerun builds for the 3D view — only the entity-panel
+/// tree no longer breaks transforms out per edge.
+///
+/// Static transforms use rerun's static-logging semantics ("latest write
+/// wins per entity"), so the observer keeps an internal snapshot of every
+/// static frame it has ever seen and re-sends the full set whenever any
+/// static-touching batch arrives. Otherwise a delta with one new static
+/// would overwrite all previously logged statics on the collapsed entity.
 ///
 /// If the model (e.g. a URDF) is loaded via rerun the `publish_static_transforms`
 /// flag should be set to false; otherwise the static transforms will be logged
@@ -41,6 +60,10 @@ pub struct RerunObserver {
     rec: RecordingStream,
     publish_static_transforms: bool,
     timeline: String,
+    /// Every static transform ever seen, keyed by (parent, child). Re-sent
+    /// in full on every static-touching `on_update` because rerun-static
+    /// replaces all component values on the entity on each write.
+    static_state: Mutex<HashMap<(String, String), Row>>,
 }
 
 impl RerunObserver {
@@ -62,26 +85,30 @@ impl RerunObserver {
             rec,
             publish_static_transforms,
             timeline,
+            static_state: Mutex::new(HashMap::new()),
         }
     }
 }
 
-/// Single row of columnar data we collect per entity path before sending.
-struct Row<'a> {
-    parent: &'a str,
-    child: &'a str,
+/// Single row of columnar data we collect before sending. Strings are owned
+/// so rows can be cached in the static-state snapshot across `on_update`
+/// calls.
+#[derive(Clone)]
+struct Row {
+    parent: String,
+    child: String,
     translation: [f32; 3],
     quaternion: [f32; 4],
     /// Stamp in nanoseconds since unix epoch. Unused for static entries.
     stamp_ns: i64,
 }
 
-fn row_from(update: &TransformUpdate) -> Row<'_> {
+fn row_from(update: &TransformUpdate) -> Row {
     let t = update.stamped_isometry.translation();
     let r = update.stamped_isometry.rotation();
     Row {
-        parent: &update.from,
-        child: &update.to,
+        parent: update.from.clone(),
+        child: update.to.clone(),
         translation: [t[0] as f32, t[1] as f32, t[2] as f32],
         quaternion: [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32],
         stamp_ns: update.stamped_isometry.stamp(),
@@ -90,39 +117,41 @@ fn row_from(update: &TransformUpdate) -> Row<'_> {
 
 impl BufferObserver for RerunObserver {
     fn on_update(&self, updates: &[TransformUpdate]) {
-        // Partition updates by entity path. Dynamic and static use separate
-        // path prefixes so a single (kind, entity_path) key isn't necessary.
-        let mut dynamic_groups: HashMap<String, Vec<Row<'_>>> = HashMap::new();
-        let mut static_groups: HashMap<String, Vec<Row<'_>>> = HashMap::new();
+        let mut dynamic_rows: Vec<Row> = Vec::new();
+        let mut static_updates: Vec<Row> = Vec::new();
 
         for update in updates {
-            let row = row_from(update);
             match update.kind {
-                TransformType::Dynamic => {
-                    let path = format!("transforms/{}->{}", row.parent, row.child);
-                    dynamic_groups.entry(path).or_default().push(row);
-                }
+                TransformType::Dynamic => dynamic_rows.push(row_from(update)),
                 TransformType::Static => {
-                    if !self.publish_static_transforms {
-                        continue;
+                    if self.publish_static_transforms {
+                        static_updates.push(row_from(update));
                     }
-                    let path = format!("static_transforms/{}", row.child);
-                    static_groups.entry(path).or_default().push(row);
                 }
             }
         }
 
-        for (entity_path, rows) in dynamic_groups {
-            self.send_dynamic(&entity_path, &rows);
+        if !dynamic_rows.is_empty() {
+            self.send_dynamic(DYNAMIC_ENTITY_PATH, &dynamic_rows);
         }
-        for (entity_path, rows) in static_groups {
-            self.send_static(&entity_path, &rows);
+
+        if !static_updates.is_empty() {
+            // Merge deltas into state and snapshot under a single lock, then
+            // release before calling rerun so the batcher never blocks on us.
+            let snapshot: Vec<Row> = {
+                let mut state = self.static_state.lock().unwrap();
+                for row in static_updates {
+                    state.insert((row.parent.clone(), row.child.clone()), row);
+                }
+                state.values().cloned().collect()
+            };
+            self.send_static(STATIC_ENTITY_PATH, &snapshot);
         }
     }
 }
 
 impl RerunObserver {
-    fn send_dynamic(&self, entity_path: &str, rows: &[Row<'_>]) {
+    fn send_dynamic(&self, entity_path: &str, rows: &[Row]) {
         let stamps: Vec<i64> = rows.iter().map(|r| r.stamp_ns).collect();
         let time_column =
             TimeColumn::new_timestamp_nanos_since_epoch(self.timeline.as_str(), stamps);
@@ -138,7 +167,7 @@ impl RerunObserver {
         }
     }
 
-    fn send_static(&self, entity_path: &str, rows: &[Row<'_>]) {
+    fn send_static(&self, entity_path: &str, rows: &[Row]) {
         // Static transforms have no time index — pass an empty timeline list.
         if let Some((tf_columns, frame_columns)) = build_columns(rows) {
             self.rec
@@ -152,12 +181,12 @@ impl RerunObserver {
     }
 }
 
-/// Build the Transform3D and CoordinateFrame component columns for one
-/// entity-path group. Returns `None` if rerun's columnar serialization fails
-/// for either archetype (logged via `re_log` inside rerun).
+/// Build the Transform3D and CoordinateFrame component columns for a batch
+/// of rows. Returns `None` if rerun's columnar serialization fails for
+/// either archetype (logged via `re_log` inside rerun).
 #[allow(clippy::type_complexity)]
 fn build_columns(
-    rows: &[Row<'_>],
+    rows: &[Row],
 ) -> Option<(
     impl Iterator<Item = rerun::SerializedComponentColumn>,
     impl Iterator<Item = rerun::SerializedComponentColumn>,
@@ -167,8 +196,8 @@ fn build_columns(
         .iter()
         .map(|r| rerun::Quaternion::from_xyzw(r.quaternion))
         .collect();
-    let parents: Vec<String> = rows.iter().map(|r| r.parent.to_owned()).collect();
-    let children: Vec<String> = rows.iter().map(|r| r.child.to_owned()).collect();
+    let parents: Vec<String> = rows.iter().map(|r| r.parent.clone()).collect();
+    let children: Vec<String> = rows.iter().map(|r| r.child.clone()).collect();
 
     let tf_columns = rerun::archetypes::Transform3D::update_fields()
         .with_many_translation(translations)

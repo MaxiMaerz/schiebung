@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for i in 0..num_steps {
         let time = i as f64 * 0.01;
+        rec.set_timestamp_secs_since_epoch("stable_time", time);
         let earth_angle = (time / earth_period) * 2.0 * std::f64::consts::PI;
         let earth_x = earth_orbit_radius * earth_angle.cos();
         let earth_y = earth_orbit_radius * earth_angle.sin();

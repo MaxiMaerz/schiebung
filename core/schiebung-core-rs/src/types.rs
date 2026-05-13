@@ -6,8 +6,9 @@ use std::fmt;
 ///
 /// This drives both how the buffer interpolates lookups and how the
 /// `schiebung-rerun` observer routes the transform onto entity paths
-/// (`transforms/...` for [`Dynamic`](TransformType::Dynamic),
-/// `static_transforms/...` for [`Static`](TransformType::Static)).
+/// (`tf` for [`Dynamic`](TransformType::Dynamic),
+/// `tf_static` for [`Static`](TransformType::Static), matching the ROS /
+/// rerun 0.32+ convention).
 #[derive(Clone, Copy, Debug)]
 pub enum TransformType {
     /// Changes over time. Each new sample is appended to the per-edge
