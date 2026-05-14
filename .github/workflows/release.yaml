@@ -60,11 +60,6 @@ jobs:
     strategy:
       matrix:
         target: [x86_64, aarch64]
-        package:
-          - name: schiebung-core-py
-            path: core/schiebung-core-py
-          - name: schiebung-rerun-py
-            path: visualizer/schiebung-rerun-py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
