@@ -4,9 +4,13 @@ import rerun as rr
 
 import schiebung
 from schiebung_rerun import (
+    BinaryStream,
+    FileSink,
+    GrpcSink,
     RerunBufferTree,
     RerunObserver,
     StampedIsometry,
+    Stdout,
     TransformType,
     TfError,
     UrdfLoader,
@@ -117,3 +121,112 @@ def test_batcher_config_rejects_non_config():
     with pytest.raises((AttributeError, TypeError)):
         RerunBufferTree("schiebung", "batcher", "stable_time", True,
                         connect_addr=DEAD_ADDR, batcher_config=object())
+
+
+# ---------------------------------------------------------------------------
+# sinks=[...] — multi-sink routing
+# ---------------------------------------------------------------------------
+# These tests intentionally avoid GrpcSink and Stdout: GrpcSink requires a live
+# viewer at the other end (the rerun client buffers and drops with no listener,
+# but exercising it meaningfully in CI is flaky), and Stdout writes the rrd
+# byte stream to fd 1, which clobbers the test runner's output. See
+# `examples/sinks_demo.py` for manual coverage of those two paths.
+
+
+def test_filesink_writes_rrd(tmp_path):
+    """A FileSink-only RerunBufferTree writes a non-empty .rrd file."""
+    rrd = tmp_path / "out.rrd"
+    tree = RerunBufferTree("schiebung", "filesink", "stable_time", True,
+                           sinks=[FileSink(str(rrd))])
+    _roundtrip(tree)
+    del tree  # drop the recording so any buffered data is flushed to disk
+    assert rrd.exists()
+    assert rrd.stat().st_size > 0
+
+
+def test_binarystream_round_trip():
+    """A BinaryStream sink yields rrd bytes that start with the RRD magic."""
+    bs = BinaryStream()
+    assert "unattached" in repr(bs)
+    tree = RerunBufferTree("schiebung", "binstream", "stable_time", True, sinks=[bs])
+    assert "attached" in repr(bs)
+    _roundtrip(tree)
+    data = bs.read()
+    assert data.startswith(b"RRF2"), f"expected rrd magic, got {data[:8]!r}"
+    # read() drains the buffer.
+    assert bs.read() == b""
+
+
+def test_multisink_filesink_and_binarystream(tmp_path):
+    """Fan-out to a file AND an in-process buffer in a single recording."""
+    rrd = tmp_path / "tee.rrd"
+    bs = BinaryStream()
+    tree = RerunBufferTree("schiebung", "tee", "stable_time", True,
+                           sinks=[bs, FileSink(str(rrd))])
+    _roundtrip(tree)
+    data = bs.read()
+    del tree
+    assert data.startswith(b"RRF2")
+    assert rrd.exists() and rrd.stat().st_size > 0
+
+
+def test_sinks_also_on_observer(tmp_path):
+    """RerunObserver accepts the same `sinks=[...]` argument."""
+    rrd = tmp_path / "obs.rrd"
+    buf = schiebung.BufferTree()
+    buf.register_observer(RerunObserver("schiebung", "obs", "stable_time", True,
+                                        sinks=[FileSink(str(rrd))]))
+    buf.update("world", "robot",
+               StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+               TransformType.Static)
+    del buf
+    assert rrd.exists() and rrd.stat().st_size > 0
+
+
+def test_sinks_conflicts_with_connect_addr():
+    """`sinks=` and `connect_addr=` together raise ValueError."""
+    with pytest.raises(ValueError, match="cannot be combined"):
+        RerunBufferTree("schiebung", "x", "stable_time", True,
+                        connect_addr=DEAD_ADDR, sinks=[FileSink("/tmp/x.rrd")])
+
+
+def test_sinks_conflicts_with_spawn_false():
+    """`sinks=` and an explicit `spawn=False` together raise ValueError."""
+    with pytest.raises(ValueError, match="cannot be combined"):
+        RerunBufferTree("schiebung", "x", "stable_time", True,
+                        spawn=False, sinks=[FileSink("/tmp/x.rrd")])
+
+
+def test_sinks_empty_list_rejected():
+    """An empty `sinks=[]` is not a meaningful routing and raises ValueError."""
+    with pytest.raises(ValueError, match="at least one sink"):
+        RerunBufferTree("schiebung", "x", "stable_time", True, sinks=[])
+
+
+def test_sinks_unknown_type_rejected():
+    """Passing something that isn't one of our sink classes raises ValueError."""
+    with pytest.raises(ValueError, match="not a valid sink"):
+        RerunBufferTree("schiebung", "x", "stable_time", True, sinks=[object()])
+
+
+def test_grpcsink_invalid_url_rejected():
+    """GrpcSink validates the URL at construction time."""
+    with pytest.raises(ValueError, match="invalid Rerun gRPC endpoint"):
+        GrpcSink("not-a-rerun-url")
+
+
+def test_binarystream_read_before_attach_rejected():
+    """Reading from an unattached BinaryStream raises ValueError (rather than panicking)."""
+    bs = BinaryStream()
+    with pytest.raises(ValueError, match="not been attached"):
+        bs.read()
+    with pytest.raises(ValueError, match="not been attached"):
+        bs.flush()
+
+
+def test_sink_constructors_smoke():
+    """All four sink classes are constructable and have sensible reprs."""
+    assert "rerun" in repr(GrpcSink()).lower()
+    assert "/tmp/foo.rrd" in repr(FileSink("/tmp/foo.rrd"))
+    assert repr(Stdout()) == "Stdout()"
+    assert repr(BinaryStream()) == "BinaryStream(unattached)"
