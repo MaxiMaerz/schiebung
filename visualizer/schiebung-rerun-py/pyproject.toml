@@ -22,7 +22,7 @@ dependencies = [
     # The core bindings: schiebung_rerun re-exports StampedIsometry / BufferTree /
     # TransformType / TfError / UrdfLoader from this package so the two share the
     # exact same Python types. Kept in lockstep with this package's version.
-    "schiebung==0.5.0",
+    "schiebung==0.5.1",
 ]
 
 [project.urls]
