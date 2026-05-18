@@ -12,13 +12,27 @@
 //! Both constructors accept an optional `batcher_config` — a
 //! `rerun.ChunkBatcherConfig` (incl. its `DEFAULT` / `LOW_LATENCY` / `ALWAYS` /
 //! `NEVER` presets) — applied to the recording stream's chunk batcher.
+//!
+//! Both constructors also accept an optional `sinks=[…]` argument that mirrors
+//! rerun's `rr.set_sinks(...)` API: pass a non-empty list of [`GrpcSink`],
+//! [`FileSink`], [`Stdout`], and/or [`BinaryStream`] to fan out the recording
+//! to multiple destinations. When `sinks` is supplied it takes the place of
+//! `spawn` / `connect_addr`; combining them raises `ValueError`.
 
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use rerun::external::re_uri::ProxyUri;
 use rerun::log::ChunkBatcherConfig;
+use rerun::sink::{
+    BinaryStreamSink as RrBinaryStreamSink, BinaryStreamStorage, FileSink as RrFileSink,
+    GrpcSink as RrGrpcSink, LogSink,
+};
 use rerun::{RecordingStream, RecordingStreamBuilder};
 
 use schiebung::{
@@ -59,8 +73,217 @@ fn batcher_config_from_py(obj: &Bound<'_, PyAny>) -> PyResult<ChunkBatcherConfig
     Ok(config)
 }
 
-/// Build a Rerun [`RecordingStream`] honoring the `spawn` / `connect_addr` knobs:
+/// gRPC log sink. Mirrors `rerun.GrpcSink(url=None)`.
 ///
+/// The URL is validated eagerly at construction (same as rerun-sdk does in its
+/// own `GrpcSink.__init__`), so a malformed endpoint raises `ValueError`
+/// immediately rather than at recording-stream build time.
+#[pyclass]
+pub struct GrpcSink {
+    uri: ProxyUri,
+}
+
+#[pymethods]
+impl GrpcSink {
+    #[new]
+    #[pyo3(signature = (url=None))]
+    fn new(url: Option<String>) -> PyResult<Self> {
+        let url = url.unwrap_or_else(|| rerun::DEFAULT_CONNECT_URL.to_owned());
+        let uri = url.parse::<ProxyUri>().map_err(|e| {
+            PyValueError::new_err(format!("invalid Rerun gRPC endpoint {url:?}: {e}"))
+        })?;
+        Ok(Self { uri })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("GrpcSink({:?})", self.uri.to_string())
+    }
+}
+
+/// File log sink. Mirrors `rerun.FileSink(path)` — writes an `.rrd` file.
+#[pyclass]
+pub struct FileSink {
+    path: PathBuf,
+}
+
+#[pymethods]
+impl FileSink {
+    #[new]
+    #[pyo3(signature = (path))]
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("FileSink({:?})", self.path)
+    }
+}
+
+/// Stdout log sink. Pipes the rrd byte stream to stdout (so
+/// `python my_script.py | rerun -` works). Maps to
+/// [`rerun::sink::FileSink::stdout`].
+#[pyclass]
+pub struct Stdout;
+
+#[pymethods]
+impl Stdout {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+
+    fn __repr__(&self) -> String {
+        "Stdout()".to_owned()
+    }
+}
+
+/// In-process binary log sink. Mirrors `rerun.BinaryStream`.
+///
+/// `BinaryStream()` is constructed without a recording; the underlying
+/// [`BinaryStreamStorage`] is created lazily the first time the sink is
+/// attached to a recording (via `sinks=[BinaryStream()]`). After that, call
+/// `read()` to drain the buffered rrd bytes, or `flush()` to force-flush the
+/// batcher first.
+///
+/// Reusing the same `BinaryStream` across multiple `RerunBufferTree`s is not
+/// supported — the storage binds to the first recording's flush channel.
+#[pyclass]
+pub struct BinaryStream {
+    storage: OnceLock<BinaryStreamStorage>,
+}
+
+impl BinaryStream {
+    /// Initialise the storage from a freshly built [`RecordingStream`] if not
+    /// already initialised, and return a fresh [`RrBinaryStreamSink`] that
+    /// writes into the shared buffer.
+    fn make_sink(&self, rec: &RecordingStream) -> RrBinaryStreamSink {
+        let storage = self.storage.get_or_init(|| {
+            // We discard `_sink` here — we only want the storage. The actual
+            // sink that will be attached to the recording is created by
+            // `with_shared_storage` below, so all log messages from this
+            // recording (and any siblings sharing the storage) land in the
+            // same buffer.
+            let (_sink, storage) = RrBinaryStreamSink::new(rec.clone());
+            storage
+        });
+        RrBinaryStreamSink::with_shared_storage(storage)
+    }
+}
+
+#[pymethods]
+impl BinaryStream {
+    #[new]
+    fn new() -> Self {
+        Self {
+            storage: OnceLock::new(),
+        }
+    }
+
+    /// Drain the buffered bytes as a fully encoded rrd byte string.
+    ///
+    /// Args:
+    ///     flush: If True (default), flush the recording's batcher before
+    ///         reading so all pending messages are encoded into the buffer.
+    ///     flush_timeout_sec: Maximum wait when `flush=True`; defaults to a
+    ///         very large value (~inf). Raises `RuntimeError` on timeout.
+    ///
+    /// Returns:
+    ///     `bytes` — the rrd payload. Returns `b""` if no messages were
+    ///     buffered (e.g. read called before any update).
+    #[pyo3(signature = (*, flush=true, flush_timeout_sec=1e38_f64))]
+    fn read<'py>(
+        &self,
+        py: Python<'py>,
+        flush: bool,
+        flush_timeout_sec: f64,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let storage = self.storage.get().ok_or_else(|| {
+            PyValueError::new_err(
+                "BinaryStream has not been attached to a recording yet — pass it via `sinks=[…]` first",
+            )
+        })?;
+        if flush {
+            let timeout = Duration::try_from_secs_f64(flush_timeout_sec).unwrap_or(Duration::MAX);
+            storage
+                .flush(timeout)
+                .map_err(|e| PyValueError::new_err(format!("Failed to flush BinaryStream: {e}")))?;
+        }
+        let bytes = storage.read().unwrap_or_default();
+        Ok(PyBytes::new(py, &bytes))
+    }
+
+    /// Block until the underlying recording's batcher has been flushed.
+    #[pyo3(signature = (timeout_sec=1e38_f64))]
+    fn flush(&self, timeout_sec: f64) -> PyResult<()> {
+        let storage = self.storage.get().ok_or_else(|| {
+            PyValueError::new_err(
+                "BinaryStream has not been attached to a recording yet — pass it via `sinks=[…]` first",
+            )
+        })?;
+        let timeout = Duration::try_from_secs_f64(timeout_sec).unwrap_or(Duration::MAX);
+        storage
+            .flush(timeout)
+            .map_err(|e| PyValueError::new_err(format!("Failed to flush BinaryStream: {e}")))?;
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        let state = if self.storage.get().is_some() {
+            "attached"
+        } else {
+            "unattached"
+        };
+        format!("BinaryStream({state})")
+    }
+}
+
+/// Translate a Python list of our sink pyclasses into a `Vec<Box<dyn LogSink>>`
+/// suitable for [`RecordingStream::set_sinks`].
+///
+/// `rec` is the recording stream that has just been built (in buffered state);
+/// `BinaryStream` sinks bind their lazy storage to it.
+fn resolve_sinks(
+    sinks: Vec<Bound<'_, PyAny>>,
+    rec: &RecordingStream,
+) -> PyResult<Vec<Box<dyn LogSink>>> {
+    if sinks.is_empty() {
+        return Err(PyValueError::new_err(
+            "`sinks` must contain at least one sink",
+        ));
+    }
+    let mut out: Vec<Box<dyn LogSink>> = Vec::with_capacity(sinks.len());
+    for sink in sinks {
+        if let Ok(grpc) = sink.cast::<GrpcSink>() {
+            let uri = grpc.borrow().uri.clone();
+            out.push(Box::new(RrGrpcSink::new(uri)));
+        } else if let Ok(file) = sink.cast::<FileSink>() {
+            let path = file.borrow().path.clone();
+            let s = RrFileSink::new(path)
+                .map_err(|e| PyValueError::new_err(format!("Failed to open FileSink: {e}")))?;
+            out.push(Box::new(s));
+        } else if sink.cast::<Stdout>().is_ok() {
+            let s = RrFileSink::stdout()
+                .map_err(|e| PyValueError::new_err(format!("Failed to open Stdout sink: {e}")))?;
+            out.push(Box::new(s));
+        } else if let Ok(bs) = sink.cast::<BinaryStream>() {
+            let sink = bs.borrow().make_sink(rec);
+            out.push(Box::new(sink));
+        } else {
+            let type_name = sink.get_type().name()?;
+            return Err(PyValueError::new_err(format!(
+                "{type_name} is not a valid sink, must be one of: GrpcSink, FileSink, Stdout, BinaryStream"
+            )));
+        }
+    }
+    Ok(out)
+}
+
+/// Build a Rerun [`RecordingStream`] honoring `sinks`, `spawn`, and
+/// `connect_addr`:
+///
+/// * `sinks` set (non-empty) → build a buffered stream, then
+///   [`RecordingStream::set_sinks`] with the resolved sinks. Mutually exclusive
+///   with a non-default `spawn` or `connect_addr` (raises `ValueError`).
 /// * `connect_addr` set                       → connect to that gRPC endpoint
 ///   (overrides `spawn`).
 /// * `connect_addr` `None`, `spawn` `true`    → spawn a viewer (the default).
@@ -74,11 +297,28 @@ fn build_recording_stream(
     spawn: bool,
     connect_addr: Option<String>,
     batcher_config: Option<ChunkBatcherConfig>,
+    sinks: Option<Vec<Bound<'_, PyAny>>>,
 ) -> PyResult<RecordingStream> {
+    if sinks.is_some() && (connect_addr.is_some() || !spawn) {
+        return Err(PyValueError::new_err(
+            "`sinks=[…]` cannot be combined with `spawn=False` or `connect_addr`; choose one routing path",
+        ));
+    }
+
     let mut builder = RecordingStreamBuilder::new(application_id).recording_id(recording_id);
     if let Some(cfg) = batcher_config {
         builder = builder.batcher_config(cfg);
     }
+
+    if let Some(sinks) = sinks {
+        let rec = builder.buffered().map_err(|e| {
+            PyValueError::new_err(format!("Failed to build buffered recording stream: {e}"))
+        })?;
+        let resolved = resolve_sinks(sinks, &rec)?;
+        rec.set_sinks(resolved);
+        return Ok(rec);
+    }
+
     match connect_addr {
         Some(addr) => {
             let label = addr.clone();
@@ -146,16 +386,27 @@ impl RerunObserver {
     ///         static frames are logged twice).
     ///     spawn: If True (the default) and no `connect_addr` is given, spawn a
     ///         Rerun viewer. If False, connect to a viewer already running on the
-    ///         default gRPC port.
+    ///         default gRPC port. Ignored when `sinks` is provided.
     ///     connect_addr: If given, connect to this Rerun gRPC endpoint
     ///         (e.g. "rerun+http://127.0.0.1:9876/proxy"); overrides `spawn`.
+    ///         Mutually exclusive with `sinks`.
     ///     batcher_config: Optional `rerun.ChunkBatcherConfig` (e.g.
     ///         `rr.ChunkBatcherConfig.LOW_LATENCY()`) controlling the recording
     ///         stream's batch-flush thresholds. The `RERUN_FLUSH_TICK_SECS` /
     ///         `RERUN_FLUSH_NUM_BYTES` / `RERUN_FLUSH_NUM_ROWS` /
     ///         `RERUN_CHUNK_MAX_ROWS_IF_UNSORTED` env vars still override it.
+    ///     sinks: Optional non-empty list of `GrpcSink` / `FileSink` / `Stdout`
+    ///         / `BinaryStream` instances. Mirrors rerun's `rr.set_sinks(...)`
+    ///         and takes precedence over `spawn` / `connect_addr` (combining
+    ///         them raises `ValueError`).
+    ///
+    /// Example:
+    ///     >>> from schiebung_rerun import RerunObserver, GrpcSink, FileSink
+    ///     >>> obs = RerunObserver("app", "session", "stable_time", True,
+    ///     ...                     sinks=[GrpcSink(), FileSink("/tmp/session.rrd")])
     #[new]
-    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None))]
+    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None, sinks=None))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         application_id: String,
         recording_id: String,
@@ -164,6 +415,7 @@ impl RerunObserver {
         spawn: bool,
         connect_addr: Option<String>,
         batcher_config: Option<Bound<'_, PyAny>>,
+        sinks: Option<Vec<Bound<'_, PyAny>>>,
     ) -> PyResult<Self> {
         let batcher_config = batcher_config
             .map(|c| batcher_config_from_py(&c))
@@ -174,6 +426,7 @@ impl RerunObserver {
             spawn,
             connect_addr,
             batcher_config,
+            sinks,
         )?;
         Ok(RerunObserver {
             inner: CoreRerunObserver::new(rec, publish_static_transforms, timeline),
@@ -218,6 +471,10 @@ impl RerunObserver {
 ///     >>> tree.buffer.update("world", "robot", t, TransformType.Static)
 ///     >>> # ...or many at once
 ///     >>> tree.buffer.update_batch([("world", "robot", t, TransformType.Static)])
+///     >>> # ...or fan out to a viewer AND an .rrd file:
+///     >>> from schiebung_rerun import GrpcSink, FileSink
+///     >>> tree2 = RerunBufferTree("schiebung", "session_002", "stable_time", True,
+///     ...                         sinks=[GrpcSink(), FileSink("/tmp/session.rrd")])
 #[pyclass]
 pub struct RerunBufferTree {
     buffer: Py<PyAny>,
@@ -228,9 +485,10 @@ impl RerunBufferTree {
     /// Create a `RerunBufferTree`.
     ///
     /// Takes the same arguments as [`RerunObserver`]; see there for the meaning
-    /// of `spawn` / `connect_addr` / `batcher_config`.
+    /// of `spawn` / `connect_addr` / `batcher_config` / `sinks`.
     #[new]
-    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None))]
+    #[pyo3(signature = (application_id, recording_id, timeline, publish_static_transforms, *, spawn=true, connect_addr=None, batcher_config=None, sinks=None))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         py: Python<'_>,
         application_id: String,
@@ -240,6 +498,7 @@ impl RerunBufferTree {
         spawn: bool,
         connect_addr: Option<String>,
         batcher_config: Option<Bound<'_, PyAny>>,
+        sinks: Option<Vec<Bound<'_, PyAny>>>,
     ) -> PyResult<Self> {
         let observer = Py::new(
             py,
@@ -251,6 +510,7 @@ impl RerunBufferTree {
                 spawn,
                 connect_addr,
                 batcher_config,
+                sinks,
             )?,
         )?;
         let buffer = py.import("schiebung")?.getattr("BufferTree")?.call0()?;
@@ -272,6 +532,10 @@ impl RerunBufferTree {
 fn schiebung_rerun_module(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<RerunBufferTree>()?;
     m.add_class::<RerunObserver>()?;
+    m.add_class::<GrpcSink>()?;
+    m.add_class::<FileSink>()?;
+    m.add_class::<Stdout>()?;
+    m.add_class::<BinaryStream>()?;
 
     // Re-export the core transform types from the `schiebung` package so that
     // `schiebung_rerun.X is schiebung.X` — the two packages share the exact
