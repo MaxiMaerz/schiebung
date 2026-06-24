@@ -33,6 +33,34 @@ re-exported from the [`schiebung`](https://pypi.org/project/schiebung/) package 
 they are the *same* types, so values pass freely between the two packages
 (`schiebung_rerun.StampedIsometry is schiebung.StampedIsometry`).
 
+### Sharing an existing Rerun recording
+
+Use `from_recording` when Schiebung transforms and regular Python Rerun logs
+must share the same sink. The supplied `rerun.RecordingStream` owns the sink
+and its lifecycle, so only one writer opens the output file:
+
+```python
+import rerun as rr
+import schiebung
+from schiebung_rerun import RerunObserver
+
+rec = rr.RecordingStream("my_app", recording_id="recording_1")
+rec.set_sinks(rr.FileSink("recording.rrd"))
+
+buffer = schiebung.BufferTree()
+buffer.register_observer(
+    RerunObserver.from_recording(rec, "stable_time", True)
+)
+
+with rec:  # finalizes the file sink on exit
+    rec.log("points", rr.Points3D([[1.0, 2.0, 3.0]]))
+    # buffer.update(...) logs transforms into the same recording and file.
+```
+
+`RerunBufferTree.from_recording(rec, timeline, publish_static_transforms)` is
+the equivalent convenience constructor. The existing constructors remain the
+all-Rust path and continue to support Schiebung's `sinks=[...]` descriptors.
+
 ### Tuning the recording stream
 
 `RerunBufferTree` / `RerunObserver` take an optional `batcher_config` — a

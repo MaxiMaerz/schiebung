@@ -18,15 +18,21 @@
 //! [`FileSink`], [`Stdout`], and/or [`BinaryStream`] to fan out the recording
 //! to multiple destinations. When `sinks` is supplied it takes the place of
 //! `spawn` / `connect_addr`; combining them raises `ValueError`.
+//!
+//! [`RerunObserver::from_recording`] and [`RerunBufferTree::from_recording`]
+//! attach to an existing Python `rerun.RecordingStream` instead. This lets
+//! regular Python Rerun logs and Schiebung transforms share one native Rerun
+//! sink, including a single `rerun.FileSink` writer.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict, PyList};
 use rerun::external::re_uri::ProxyUri;
 use rerun::log::ChunkBatcherConfig;
 use rerun::sink::{
@@ -355,6 +361,171 @@ fn core_kind_from_py(obj: &Bound<'_, PyAny>) -> PyResult<CoreTransformType> {
     }
 }
 
+/// One transform row prepared for Rerun's Python columnar API.
+///
+/// The shared-recording backend cannot move a Rust `RecordingStream` across
+/// extension-module boundaries, so it retains the Python recording and sends
+/// these rows through `rerun.RecordingStream.send_columns` instead.
+#[derive(Clone)]
+struct SharedRow {
+    parent: String,
+    child: String,
+    translation: [f32; 3],
+    quaternion: [f32; 4],
+    stamp_ns: i64,
+}
+
+impl From<&CoreTransformUpdate> for SharedRow {
+    fn from(update: &CoreTransformUpdate) -> Self {
+        let translation = update.stamped_isometry.translation();
+        let quaternion = update.stamped_isometry.rotation();
+        Self {
+            parent: update.from.clone(),
+            child: update.to.clone(),
+            translation: [
+                translation[0] as f32,
+                translation[1] as f32,
+                translation[2] as f32,
+            ],
+            quaternion: [
+                quaternion[0] as f32,
+                quaternion[1] as f32,
+                quaternion[2] as f32,
+                quaternion[3] as f32,
+            ],
+            stamp_ns: update.stamped_isometry.stamp(),
+        }
+    }
+}
+
+/// Backend for a Python-owned `rerun.RecordingStream`.
+///
+/// Keeping this backend separate preserves the all-Rust fast path for the
+/// existing constructors. It is used only by `RerunObserver.from_recording`.
+struct SharedRecordingBackend {
+    recording: Py<PyAny>,
+    timeline: String,
+    publish_static_transforms: bool,
+    static_state: Mutex<HashMap<(String, String), SharedRow>>,
+}
+
+impl SharedRecordingBackend {
+    fn new(recording: Py<PyAny>, timeline: String, publish_static_transforms: bool) -> Self {
+        Self {
+            recording,
+            timeline,
+            publish_static_transforms,
+            static_state: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn on_update(&self, py: Python<'_>, updates: &[CoreTransformUpdate]) -> PyResult<()> {
+        let mut dynamic_rows = Vec::new();
+        let mut static_updates = Vec::new();
+
+        for update in updates {
+            match update.kind {
+                CoreTransformType::Dynamic => dynamic_rows.push(SharedRow::from(update)),
+                CoreTransformType::Static if self.publish_static_transforms => {
+                    static_updates.push(SharedRow::from(update));
+                }
+                CoreTransformType::Static => {}
+            }
+        }
+
+        if !dynamic_rows.is_empty() {
+            self.send_rows(py, "tf", &dynamic_rows, true)?;
+        }
+
+        if !static_updates.is_empty() {
+            let snapshot: Vec<SharedRow> = {
+                let mut state = self.static_state.lock().unwrap();
+                for row in static_updates {
+                    state.insert((row.parent.clone(), row.child.clone()), row);
+                }
+                state.values().cloned().collect()
+            };
+            self.send_rows(py, "tf_static", &snapshot, false)?;
+        }
+
+        Ok(())
+    }
+
+    /// Send a batch through Rerun's Python columnar API.
+    ///
+    /// Numeric Python timestamps are seconds, whereas Schiebung stamps are
+    /// nanoseconds. Constructing a NumPy `datetime64[ns]` array preserves the
+    /// exact values before handing them to `rerun.TimeColumn`.
+    fn send_rows(
+        &self,
+        py: Python<'_>,
+        entity_path: &str,
+        rows: &[SharedRow],
+        temporal: bool,
+    ) -> PyResult<()> {
+        let rerun = py.import("rerun")?;
+
+        let translations: Vec<[f32; 3]> = rows.iter().map(|row| row.translation).collect();
+        let quaternions: Vec<[f32; 4]> = rows.iter().map(|row| row.quaternion).collect();
+        let parents: Vec<&str> = rows.iter().map(|row| row.parent.as_str()).collect();
+        let children: Vec<&str> = rows.iter().map(|row| row.child.as_str()).collect();
+
+        let transform_kwargs = PyDict::new(py);
+        transform_kwargs.set_item("translation", translations)?;
+        transform_kwargs.set_item("quaternion", quaternions)?;
+        transform_kwargs.set_item("parent_frame", &parents)?;
+        transform_kwargs.set_item("child_frame", &children)?;
+        let transform_columns =
+            rerun
+                .getattr("Transform3D")?
+                .call_method("columns", (), Some(&transform_kwargs))?;
+
+        let frame_kwargs = PyDict::new(py);
+        frame_kwargs.set_item("frame", children)?;
+        let frame_columns =
+            rerun
+                .getattr("CoordinateFrame")?
+                .call_method("columns", (), Some(&frame_kwargs))?;
+
+        let columns = PyList::empty(py);
+        for column in transform_columns.try_iter()? {
+            columns.append(column?)?;
+        }
+        for column in frame_columns.try_iter()? {
+            columns.append(column?)?;
+        }
+
+        let indexes = PyList::empty(py);
+        if temporal {
+            let stamps: Vec<i64> = rows.iter().map(|row| row.stamp_ns).collect();
+            let array_kwargs = PyDict::new(py);
+            array_kwargs.set_item("dtype", "datetime64[ns]")?;
+            let timestamps =
+                py.import("numpy")?
+                    .call_method("asarray", (stamps,), Some(&array_kwargs))?;
+
+            let time_kwargs = PyDict::new(py);
+            time_kwargs.set_item("timestamp", timestamps)?;
+            let time_column = rerun
+                .getattr("TimeColumn")?
+                .call((self.timeline.as_str(),), Some(&time_kwargs))?;
+            indexes.append(time_column)?;
+        }
+
+        self.recording.bind(py).call_method(
+            "send_columns",
+            (entity_path, indexes, columns),
+            None,
+        )?;
+        Ok(())
+    }
+}
+
+enum RerunObserverBackend {
+    Native(CoreRerunObserver),
+    Shared(SharedRecordingBackend),
+}
+
 /// Rerun logger that can be registered on a `schiebung.BufferTree`.
 ///
 /// Implements the buffer's batch-observer protocol (`on_update_batch`): every
@@ -369,7 +540,7 @@ fn core_kind_from_py(obj: &Bound<'_, PyAny>) -> PyResult<CoreTransformType> {
 ///     ... )
 #[pyclass]
 pub struct RerunObserver {
-    inner: CoreRerunObserver,
+    backend: RerunObserverBackend,
 }
 
 #[pymethods]
@@ -429,7 +600,60 @@ impl RerunObserver {
             sinks,
         )?;
         Ok(RerunObserver {
-            inner: CoreRerunObserver::new(rec, publish_static_transforms, timeline),
+            backend: RerunObserverBackend::Native(CoreRerunObserver::new(
+                rec,
+                publish_static_transforms,
+                timeline,
+            )),
+        })
+    }
+
+    /// Create an observer that logs into an existing Python
+    /// `rerun.RecordingStream`.
+    ///
+    /// The supplied recording owns all routing and lifecycle decisions, so
+    /// configure its sinks before constructing the observer. This is the mode
+    /// to use when regular Python Rerun logs and Schiebung transforms must land
+    /// in the same file or binary stream.
+    ///
+    /// Args:
+    ///     recording: An existing `rerun.RecordingStream`.
+    ///     timeline: Timeline for dynamic transform timestamps.
+    ///     publish_static_transforms: Whether static transforms are forwarded.
+    ///
+    /// Example:
+    ///     >>> import rerun as rr
+    ///     >>> import schiebung, schiebung_rerun
+    ///     >>> rec = rr.RecordingStream("my_app", recording_id="session")
+    ///     >>> rec.set_sinks(rr.FileSink("session.rrd"))
+    ///     >>> obs = schiebung_rerun.RerunObserver.from_recording(
+    ///     ...     rec, "stable_time", True
+    ///     ... )
+    ///     >>> buf = schiebung.BufferTree()
+    ///     >>> buf.register_observer(obs)
+    #[staticmethod]
+    #[pyo3(signature = (recording, timeline, publish_static_transforms))]
+    pub fn from_recording(
+        py: Python<'_>,
+        recording: Py<PyAny>,
+        timeline: String,
+        publish_static_transforms: bool,
+    ) -> PyResult<Self> {
+        let rerun = py.import("rerun")?;
+        let recording_type = rerun.getattr("RecordingStream")?;
+        if !recording.bind(py).is_instance(&recording_type)? {
+            let type_name = recording.bind(py).get_type().name()?;
+            return Err(PyTypeError::new_err(format!(
+                "recording must be a rerun.RecordingStream, got {type_name}"
+            )));
+        }
+
+        Ok(Self {
+            backend: RerunObserverBackend::Shared(SharedRecordingBackend::new(
+                recording,
+                timeline,
+                publish_static_transforms,
+            )),
         })
     }
 
@@ -452,8 +676,13 @@ impl RerunObserver {
                 kind,
             ));
         }
-        self.inner.on_update(&core_updates);
-        Ok(())
+        match &self.backend {
+            RerunObserverBackend::Native(inner) => {
+                inner.on_update(&core_updates);
+                Ok(())
+            }
+            RerunObserverBackend::Shared(inner) => inner.on_update(py, &core_updates),
+        }
     }
 }
 
@@ -480,6 +709,17 @@ pub struct RerunBufferTree {
     buffer: Py<PyAny>,
 }
 
+impl RerunBufferTree {
+    fn with_observer(py: Python<'_>, observer: RerunObserver) -> PyResult<Self> {
+        let observer = Py::new(py, observer)?;
+        let buffer = py.import("schiebung")?.getattr("BufferTree")?.call0()?;
+        buffer.call_method1("register_observer", (observer,))?;
+        Ok(Self {
+            buffer: buffer.unbind(),
+        })
+    }
+}
+
 #[pymethods]
 impl RerunBufferTree {
     /// Create a `RerunBufferTree`.
@@ -500,7 +740,7 @@ impl RerunBufferTree {
         batcher_config: Option<Bound<'_, PyAny>>,
         sinks: Option<Vec<Bound<'_, PyAny>>>,
     ) -> PyResult<Self> {
-        let observer = Py::new(
+        Self::with_observer(
             py,
             RerunObserver::new(
                 application_id,
@@ -512,12 +752,27 @@ impl RerunBufferTree {
                 batcher_config,
                 sinks,
             )?,
-        )?;
-        let buffer = py.import("schiebung")?.getattr("BufferTree")?.call0()?;
-        buffer.call_method1("register_observer", (observer,))?;
-        Ok(RerunBufferTree {
-            buffer: buffer.unbind(),
-        })
+        )
+    }
+
+    /// Create a `RerunBufferTree` that logs into an existing Python
+    /// `rerun.RecordingStream`.
+    ///
+    /// This is the convenience equivalent of creating a plain
+    /// `schiebung.BufferTree` and registering
+    /// `RerunObserver.from_recording(...)` on it.
+    #[staticmethod]
+    #[pyo3(signature = (recording, timeline, publish_static_transforms))]
+    pub fn from_recording(
+        py: Python<'_>,
+        recording: Py<PyAny>,
+        timeline: String,
+        publish_static_transforms: bool,
+    ) -> PyResult<Self> {
+        Self::with_observer(
+            py,
+            RerunObserver::from_recording(py, recording, timeline, publish_static_transforms)?,
+        )
     }
 
     /// The underlying `schiebung.BufferTree`. Every update to it is logged to Rerun.

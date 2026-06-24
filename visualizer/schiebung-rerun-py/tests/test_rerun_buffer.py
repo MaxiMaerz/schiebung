@@ -1,6 +1,9 @@
 """Tests for schiebung_rerun Python bindings."""
+import warnings
+
 import pytest
 import rerun as rr
+from rerun.recording import load_recording
 
 import schiebung
 from schiebung_rerun import (
@@ -19,6 +22,13 @@ from schiebung_rerun import (
 # A well-formed gRPC URL that nothing is listening on: the sink connects lazily
 # and drops data, so RerunBufferTree can be exercised without a viewer.
 DEAD_ADDR = "rerun+http://127.0.0.1:9999/proxy"
+
+
+def _load_recording(path):
+    """Use the 0.31-compatible reader without emitting its 0.32 deprecation warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return load_recording(path)
 
 
 def test_stamped_isometry():
@@ -121,6 +131,102 @@ def test_batcher_config_rejects_non_config():
     with pytest.raises((AttributeError, TypeError)):
         RerunBufferTree("schiebung", "batcher", "stable_time", True,
                         connect_addr=DEAD_ADDR, batcher_config=object())
+
+
+# ---------------------------------------------------------------------------
+# Shared Python RecordingStream
+# ---------------------------------------------------------------------------
+
+
+def test_shared_recording_writes_python_and_schiebung_data(tmp_path):
+    """One real rerun.FileSink contains regular Python data and Schiebung transforms."""
+    rrd = tmp_path / "shared.rrd"
+    rec = rr.RecordingStream("shared", recording_id="shared_recording")
+    rec.set_sinks(rr.FileSink(str(rrd)))
+    tree = RerunBufferTree.from_recording(rec, "stable_time", True)
+
+    with rec:
+        rec.log("python/points", rr.Points3D([[1.0, 2.0, 3.0]]))
+        tree.buffer.update_batch([
+            (
+                "world",
+                "robot",
+                StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+                TransformType.Static,
+            ),
+            (
+                "odom",
+                "base_link",
+                StampedIsometry(
+                    [2.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    123_456_789,
+                ),
+                TransformType.Dynamic,
+            ),
+        ])
+
+    recording = _load_recording(rrd)
+    assert set(recording.schema().entity_paths()) >= {
+        "/python/points",
+        "/tf",
+        "/tf_static",
+    }
+
+    dynamic_chunks = [chunk for chunk in recording.chunks() if chunk.entity_path == "/tf"]
+    assert len(dynamic_chunks) == 1
+    batch = dynamic_chunks[0].to_record_batch()
+    assert batch.column("stable_time").cast("int64").to_pylist() == [123_456_789]
+
+
+def test_shared_recording_observer_factory_and_static_snapshot(tmp_path):
+    """The observer factory works directly and preserves all prior static frames."""
+    rrd = tmp_path / "shared_observer.rrd"
+    rec = rr.RecordingStream("shared", recording_id="shared_observer")
+    rec.set_sinks(rr.FileSink(str(rrd)))
+    buf = schiebung.BufferTree()
+    buf.register_observer(RerunObserver.from_recording(rec, "stable_time", True))
+
+    with rec:
+        buf.update(
+            "world", "a",
+            StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+            TransformType.Static,
+        )
+        buf.update(
+            "a", "b",
+            StampedIsometry([2.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+            TransformType.Static,
+        )
+
+    recording = _load_recording(rrd)
+    static_chunks = [chunk for chunk in recording.chunks() if chunk.entity_path == "/tf_static"]
+    assert max(chunk.num_rows for chunk in static_chunks) == 2
+
+
+def test_shared_recording_can_suppress_static_transforms(tmp_path):
+    rrd = tmp_path / "no_static.rrd"
+    rec = rr.RecordingStream("shared", recording_id="no_static")
+    rec.set_sinks(rr.FileSink(str(rrd)))
+    tree = RerunBufferTree.from_recording(rec, "stable_time", False)
+
+    with rec:
+        rec.log("python/points", rr.Points3D([[1.0, 2.0, 3.0]]))
+        tree.buffer.update(
+            "world", "robot",
+            StampedIsometry([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 0),
+            TransformType.Static,
+        )
+
+    recording = _load_recording(rrd)
+    assert "/python/points" in recording.schema().entity_paths()
+    assert "/tf_static" not in recording.schema().entity_paths()
+
+
+@pytest.mark.parametrize("factory", [RerunObserver.from_recording, RerunBufferTree.from_recording])
+def test_shared_recording_rejects_invalid_recording(factory):
+    with pytest.raises(TypeError, match="rerun.RecordingStream"):
+        factory(object(), "stable_time", True)
 
 
 # ---------------------------------------------------------------------------
