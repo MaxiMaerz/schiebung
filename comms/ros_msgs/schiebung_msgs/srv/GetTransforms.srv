@@ -1,0 +1,4 @@
+# Returns the server's current buffer content, latest sample per edge.
+---
+tf2_msgs/TFMessage transforms          # dynamic edges
+tf2_msgs/TFMessage static_transforms   # static edges

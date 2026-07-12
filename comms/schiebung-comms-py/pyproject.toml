@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "schiebung_comms"
+# Sourced from this crate's Cargo.toml (which inherits from the workspace).
+dynamic = ["version"]
+description = "Python bindings for schiebung comms (transform client/server, ROS 2 messages over zenoh)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Michael Maerz"},
+]
+
+keywords = ["robotics", "transform", "zenoh", "ros2"]
+
+[project.urls]
+Homepage = "https://github.com/MaxiMaerz/schiebung/"
+Repository = "https://github.com/MaxiMaerz/schiebung/"
+"Bug Tracker" = "https://github.com/MaxiMaerz/schiebung/issues"
+
+[tool.maturin]
+module-name = "schiebung_comms"
+manifest-path = "Cargo.toml"
+bindings = "pyo3"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

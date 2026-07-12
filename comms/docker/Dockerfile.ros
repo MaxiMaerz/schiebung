@@ -1,0 +1,12 @@
+FROM ros:jazzy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-rmw-zenoh-cpp \
+    ros-jazzy-tf2-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

@@ -3,3 +3,5 @@ target
 .cargo
 site
 *.pyc
+.venv
+.pytest_cache

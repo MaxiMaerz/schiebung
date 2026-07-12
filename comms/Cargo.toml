@@ -13,15 +13,21 @@ name = "server"
 path = "src/bin/server.rs"
 
 [dependencies]
-capnp = "0.20"
 nalgebra = "0.33"
-zenoh = "1.7.1"
+zenoh = "1.9"
 tokio = { version = "1.42", features = ["full"] }
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0", features = ["derive"] }
-schiebung = { path = "../core/schiebung-core-rs" }
+schiebung.workspace = true
 thiserror = "2.0"
+hiroz = "0.1"
+# Referenced by the code hiroz-codegen emits into OUT_DIR (`::hiroz_cdr`,
+# `::byteorder`, `::bytemuck`), so they must be direct dependencies even though
+# no hand-written code in this crate names them.
+hiroz-cdr = "0.1"
+byteorder = "1.3"
+bytemuck = { version = "1", features = ["derive", "extern_crate_alloc"] }
 
 [build-dependencies]
-capnpc = "0.20"
+hiroz-codegen = "0.1"

@@ -18,7 +18,6 @@ path = "src/bin/server.rs"
 schiebung = { path = "../../core/schiebung-core-rs" }
 schiebung-rerun = { path = "../../visualizer/schiebung-rerun-rs" }
 comms = { path = "../../comms" }
-zenoh = "1.7.1"
 tokio = { version = "1.42", features = ["full"] }
 rerun = "0.31.4"
 log = "0.4"

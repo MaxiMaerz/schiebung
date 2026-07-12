@@ -9,7 +9,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     println!("Creating transform publisher...");
-    let client = TransformClient::new().await?;
+    let client = TransformClient::with_config(comms::ZenohConfig::from_env()).await?;
+
+    // Give discovery a moment to match publishers and subscribers before the
+    // first messages go out (multicast scouting or connection establishment).
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     println!("Publishing static transform: world -> robot_base");
     let transform = StampedIsometry::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
