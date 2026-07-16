@@ -1,14 +1,11 @@
 /// Errors that can occur in the comms package
 #[derive(Debug, thiserror::Error)]
 pub enum CommsError {
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] capnp::Error),
-
-    #[error("Cap'n Proto schema error: {0}")]
-    NotInSchema(#[from] capnp::NotInSchema),
-
     #[error("Zenoh error: {0}")]
     Zenoh(String),
+
+    #[error("Transform lookup failed: {0}")]
+    LookupFailed(String),
 
     #[error("Transform buffer error: {0}")]
     Buffer(#[from] schiebung::error::TfError),
@@ -16,22 +13,25 @@ pub enum CommsError {
     #[error("Configuration error: {0}")]
     Config(String),
 
-    #[error("Response ID mismatch: expected {expected}, got {actual}")]
-    ResponseIdMismatch { expected: u64, actual: u64 },
-
     #[error("No response received for transform request")]
     NoResponse,
 
     #[error("Mutex lock poisoned: {0}")]
     MutexPoisoned(String),
-
-    #[error("UTF-8 error: {0}")]
-    Utf8(#[from] std::str::Utf8Error),
 }
 
 impl From<String> for CommsError {
     fn from(s: String) -> Self {
         CommsError::Zenoh(s)
+    }
+}
+
+/// hiroz surfaces failures as `zenoh::Result`, whose error is a boxed
+/// `dyn Error`. Flattening it to a message here keeps `?` usable on every
+/// hiroz call without leaking the boxed type into our public API.
+impl From<zenoh::Error> for CommsError {
+    fn from(e: zenoh::Error) -> Self {
+        CommsError::Zenoh(e.to_string())
     }
 }
 

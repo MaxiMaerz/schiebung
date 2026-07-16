@@ -41,43 +41,10 @@ use log::info;
 use rerun::RecordingStreamBuilder;
 use schiebung_rerun::RerunObserver;
 use std::sync::{Arc, RwLock};
-use tokio::sync::oneshot;
 
-/// Handle to a running server, allowing shutdown and join.
-pub struct ServerHandle {
-    shutdown_tx: Option<oneshot::Sender<()>>,
-    join_handle: Option<tokio::task::JoinHandle<Result<(), CommsError>>>,
-}
-
-impl ServerHandle {
-    /// Signal the server to shut down.
-    pub fn shutdown(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-    }
-
-    /// Wait for the server task to complete.
-    /// Returns the result from the server's run loop.
-    pub async fn join(mut self) -> Result<(), CommsError> {
-        if let Some(handle) = self.join_handle.take() {
-            match handle.await {
-                Ok(result) => result,
-                Err(e) => Err(CommsError::Config(format!("Server task panicked: {}", e))),
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Check if the server is still running.
-    pub fn is_running(&self) -> bool {
-        self.join_handle
-            .as_ref()
-            .map(|h| !h.is_finished())
-            .unwrap_or(false)
-    }
-}
+// The handle type is provided by the comms layer; re-exported here for
+// backwards compatibility.
+pub use comms::server::ServerHandle;
 
 /// Centralized transform server with integrated Rerun visualization.
 ///
@@ -142,26 +109,8 @@ impl Server {
     /// and wait for it to complete. The buffer can be accessed via `buffer()`
     /// while the server is running.
     pub async fn start(&self) -> ServerHandle {
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-
-        let server = self.inner.clone();
-        let join_handle = tokio::spawn(async move {
-            info!("Starting schiebung server with Rerun visualization (background)...");
-
-            // Run the server until shutdown signal or completion
-            tokio::select! {
-                result = server.run() => result,
-                _ = async { shutdown_rx.await.ok() } => {
-                    info!("Server shutdown requested");
-                    Ok(())
-                }
-            }
-        });
-
-        ServerHandle {
-            shutdown_tx: Some(shutdown_tx),
-            join_handle: Some(join_handle),
-        }
+        info!("Starting schiebung server with Rerun visualization (background)...");
+        self.inner.start().await
     }
 
     /// Run the transform server (blocking).

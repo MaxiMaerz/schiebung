@@ -9,7 +9,7 @@ use std::fmt;
 /// (`tf` for [`Dynamic`](TransformType::Dynamic),
 /// `tf_static` for [`Static`](TransformType::Static), matching the ROS /
 /// rerun 0.32+ convention).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransformType {
     /// Changes over time. Each new sample is appended to the per-edge
     /// history; lookups for past stamps interpolate.

@@ -39,7 +39,7 @@ What you get over rolling your own:
 
 - Sub-microsecond lookups (40–80 ns measured per query)
 - Memory safe (Rust); pure-Rust dependency footprint
-- Optional features — pull in just the core, or also a [Rerun](https://rerun.io) visualizer / a [Cap'n Proto](https://capnproto.org) + [Zenoh](https://zenoh.io) server
+- Optional features — pull in just the core, or also a [Rerun](https://rerun.io) visualizer / a [Zenoh](https://zenoh.io)-based server speaking the ROS 2 wire format ([rmw_zenoh](https://github.com/ros2/rmw_zenoh) compatible)
 - First-class Python bindings via PyO3, with NumPy interop
 
 ## Design goals
@@ -47,7 +47,7 @@ What you get over rolling your own:
 - As fast as possible: sub-microsecond lookups and updates
 - Framework-agnostic: usable from any application that wants a transform graph, not tied to ROS
 - All features are optional: depending on what you need, you can pull in just the core or also the visualizer / server layers
-- Minimal, scalable, fast client/server: [Cap'n Proto](https://capnproto.org) + [Zenoh](https://zenoh.io) for over-the-wire transport
+- Minimal, scalable, fast client/server: standard ROS 2 messages over [Zenoh](https://zenoh.io) — runs standalone without ROS, and interoperates natively with ROS 2 systems using [rmw_zenoh](https://github.com/ros2/rmw_zenoh)
 - Easy to use: a URDF loader is shipped for the robotics case, a simple [Rerun](https://rerun.io) observer for visualization
 
 ## Status
@@ -63,7 +63,7 @@ This library is still under development and the API is not considered stable yet
 The hosted documentation has runnable examples for each layer:
 
 - [Core](https://maximaerz.github.io/schiebung/schiebung-core/rust/) — Rust and Python implementation of the buffer only, no Rerun or Zenoh dependencies.
-- [Comms](https://maximaerz.github.io/schiebung/schiebung-comms/) — Rust and Python implementation of the client/server using Cap'n Proto and Zenoh.
+- [Comms](https://maximaerz.github.io/schiebung/schiebung-comms/) — Rust and Python implementation of the client/server using ROS 2 messages over Zenoh (rmw_zenoh compatible).
 - [Visualizer](https://maximaerz.github.io/schiebung/schiebung-visualizer/rust/) — Rust and Python implementation of the visualizer using Rerun.
 
 Crate-level READMEs ([core](core/schiebung-core-rs/README.md), [rerun](visualizer/schiebung-rerun-rs/README.md)) and the [`examples/`](visualizer/schiebung-rerun-rs/examples/) directory have shorter snippets to copy.

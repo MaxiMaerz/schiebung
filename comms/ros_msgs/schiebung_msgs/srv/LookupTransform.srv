@@ -1,0 +1,10 @@
+# Look up the transform of source_frame expressed in target_frame.
+string target_frame
+string source_frame
+# Time of the lookup; zero (sec == 0 && nanosec == 0) means "latest available" (tf2 semantics).
+builtin_interfaces/Time time
+---
+bool success
+string error_message
+# header.frame_id = target_frame, child_frame_id = source_frame
+geometry_msgs/TransformStamped transform

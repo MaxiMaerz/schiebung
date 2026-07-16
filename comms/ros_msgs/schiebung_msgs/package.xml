@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>schiebung_msgs</name>
+  <version>0.0.0</version>
+  <description>Vendored message definitions for schiebung comms (byte-exact from ROS 2 Jazzy where upstream).</description>
+  <maintainer email="michael0maerz@googlemail.com">Michael Maerz</maintainer>
+  <license>MIT</license>
+</package>

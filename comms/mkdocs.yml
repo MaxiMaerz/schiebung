@@ -2,5 +2,6 @@ site_name: Schiebung Comms
 
 nav:
   - Overview: index.md
+  - Python: python.md
 
 docs_dir: docs

@@ -608,6 +608,31 @@ impl BufferTree {
         }
     }
 
+    /// Snapshot of the current graph state: the latest sample per edge, as
+    /// one [`TransformUpdate`] per edge.
+    ///
+    /// Edges without any samples are skipped. The order of the returned
+    /// updates is unspecified.
+    pub fn latest_transforms(&self) -> Vec<TransformUpdate> {
+        let mut updates = Vec::new();
+        for (from_idx, to_idx, history) in self.graph.all_edges() {
+            let (Some(from_node), Some(to_node)) =
+                (self.index.get_node(from_idx), self.index.get_node(to_idx))
+            else {
+                continue;
+            };
+            if let Some(latest) = history.history.back() {
+                updates.push(TransformUpdate {
+                    from: from_node.name.clone(),
+                    to: to_node.name.clone(),
+                    stamped_isometry: latest.clone(),
+                    kind: history.kind,
+                });
+            }
+        }
+        updates
+    }
+
     /// Render the current graph as a Graphviz DOT-format string.
     ///
     /// Each node is labeled with its frame name; each edge is labeled with
@@ -748,6 +773,50 @@ mod tests {
         // Test lookup
         let result = buffer_tree.lookup_latest_transform(&source, &target);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_latest_transforms_snapshot() {
+        let mut buffer_tree = BufferTree::new();
+        assert!(buffer_tree.latest_transforms().is_empty());
+
+        buffer_tree
+            .update(&[
+                TransformUpdate::new(
+                    "world",
+                    "base",
+                    StampedIsometry::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0),
+                    TransformType::Static,
+                ),
+                TransformUpdate::new(
+                    "base",
+                    "tool",
+                    StampedIsometry::new([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 1_000_000_000),
+                    TransformType::Dynamic,
+                ),
+                TransformUpdate::new(
+                    "base",
+                    "tool",
+                    StampedIsometry::new([2.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], 2_000_000_000),
+                    TransformType::Dynamic,
+                ),
+            ])
+            .unwrap();
+
+        let mut snapshot = buffer_tree.latest_transforms();
+        snapshot.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
+
+        // One update per edge, each carrying the latest sample.
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].from, "base");
+        assert_eq!(snapshot[0].to, "tool");
+        assert_eq!(snapshot[0].kind, TransformType::Dynamic);
+        assert_eq!(snapshot[0].stamped_isometry.stamp, 2_000_000_000);
+        assert_relative_eq!(snapshot[0].stamped_isometry.translation()[0], 2.0);
+        assert_eq!(snapshot[1].from, "world");
+        assert_eq!(snapshot[1].to, "base");
+        assert_eq!(snapshot[1].kind, TransformType::Static);
+        assert_relative_eq!(snapshot[1].stamped_isometry.translation()[2], 1.0);
     }
 
     #[test]

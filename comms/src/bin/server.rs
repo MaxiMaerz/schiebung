@@ -6,7 +6,8 @@ async fn main() {
         .filter(None, log::LevelFilter::Info)
         .init();
 
-    match comms::server::TransformServer::new().await {
+    let config = comms::ZenohConfig::from_env();
+    match comms::server::TransformServer::with_config(config).await {
         Ok(server) => {
             if let Err(e) = server.run().await {
                 error!("Server error: {}", e);

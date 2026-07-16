@@ -546,6 +546,27 @@ impl BufferTree {
         }
     }
 
+    /// Snapshot of the buffer's current content, latest sample per edge.
+    ///
+    /// Returns:
+    ///     A list of (from_frame, to_frame, StampedIsometry, TransformType)
+    ///     tuples, one per edge in the transform graph. The order is
+    ///     unspecified.
+    pub fn latest_transforms(&self) -> Vec<(String, String, StampedIsometry, TransformType)> {
+        self.inner
+            .latest_transforms()
+            .into_iter()
+            .map(|u| {
+                (
+                    u.from,
+                    u.to,
+                    StampedIsometry::from(u.stamped_isometry),
+                    TransformType::from(u.kind),
+                )
+            })
+            .collect()
+    }
+
     /// Visualize the buffer tree as a DOT graph
     /// Can not use internal visualizer because we Store the nodes in self.index
     pub fn visualize(&self) -> String {

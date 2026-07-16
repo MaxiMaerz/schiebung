@@ -5,6 +5,7 @@ members = [
     "core/schiebung-core-rs",
     "core/schiebung-core-py",
     "comms",
+    "comms/schiebung-comms-py",
     "visualizer/schiebung-rerun-rs",
     "visualizer/schiebung-rerun-py",
     "server/schiebung-server-rs",
